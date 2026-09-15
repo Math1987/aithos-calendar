@@ -8,10 +8,6 @@ resource "aws_cloudwatch_log_group" "lambda" {
   name              = "/aws/lambda/${local.name}-health"
   retention_in_days = 14
 }
-resource "aws_cloudwatch_log_group" "api" {
-  name              = "/aws/apigateway/${local.name}"
-  retention_in_days = 14
-}
 
 resource "aws_lambda_function" "health" {
   function_name    = "${local.name}-health"
@@ -51,14 +47,7 @@ resource "aws_apigatewayv2_stage" "production" {
     throttling_burst_limit = 20
     throttling_rate_limit  = 10
   }
-  access_log_settings {
-    destination_arn = aws_cloudwatch_log_group.api.arn
-    format = jsonencode({
-      requestId      = "$context.requestId", requestTime = "$context.requestTime",
-      routeKey       = "$context.routeKey", status = "$context.status",
-      responseLength = "$context.responseLength", integrationStatus = "$context.integrationStatus"
-    })
-  }
+
 }
 resource "aws_lambda_permission" "api" {
   statement_id  = "AllowHealthApi"

@@ -55,8 +55,9 @@ flowchart TD
   application route. Unsupported routes return 404 through API Gateway.
 - Disable the default execute-api endpoint after configuring the custom domain.
 - Lambda invoke permission limited to this API and health route.
-- Terraform-managed log groups with 14-day retention; API access logs retain
-  operational identifiers/status, not request bodies, tokens, or calendar links.
+- Terraform-managed Lambda log group with 14-day retention. API access logs are
+  deferred for this health-only stage because their delivery requires additional
+  account-level CloudWatch permissions; see the stage-1 implementation adjustment.
 - No CORS yet: the blank website makes no API calls.
 
 ### Website

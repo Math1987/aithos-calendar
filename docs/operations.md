@@ -98,11 +98,13 @@ Inspect the workflow run, deployed commit and logs:
 ```sh
 python3 scripts/with-env.py gh run list --repo Math1987/aithos-calendar --limit 3
 python3 scripts/with-env.py aws logs tail /aws/lambda/calendar-production-health --since 10m
-python3 scripts/with-env.py aws logs tail /aws/apigateway/calendar-production --since 10m
 ```
 
-Logs retain 14 days. API logs include request IDs, route, status and timing metadata;
-no request bodies, credentials, or IP addresses. Health never calls an external API.
+Lambda logs retain 14 days. They contain runtime invocation reports; the handler
+does not log request bodies, credentials, or IP addresses. Health never calls an
+external API. API Gateway access logs are deferred: enabling delivery requires
+account-level CloudWatch permissions that the deployment role does not have.
+See the implementation note in the stage-1 plan.
 
 ## DNS, hosting, and recovery
 

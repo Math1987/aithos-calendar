@@ -4,6 +4,20 @@ Status: launch authorized. Implementation is in progress; see [Operations](opera
 for executable commands and the actual repository. The sequence below records the
 approved plan.
 
+## Implementation adjustment: API access logs
+
+Keep Lambda runtime logs with 14-day retention. Defer API Gateway access logs for
+this health-only stage. AWS requires account-level CloudWatch log-delivery and
+resource-policy permissions; automatic approval review rejected granting those
+permissions to CI because they could affect unrelated applications. No such
+permissions were applied. The unused API log group was verified to have no streams
+before its removal. This changes the logging portions of the original sequence
+below: acceptance inspects the Lambda group only. Revisit access logs before
+implementing real API features, with an explicitly reviewed permissions design.
+
+References: [HTTP API logging permissions](https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-logging.html)
+and [CloudWatch authorization](https://docs.aws.amazon.com/service-authorization/latest/reference/list_logs.html).
+
 ## Outcome and strict scope
 
 A push to `main` deploys:
