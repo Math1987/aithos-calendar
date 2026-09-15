@@ -13,6 +13,7 @@ Implementation starts after the planning checkpoint with the project owner.
 ## Documentation
 
 - [Product design](docs/product-design.md)
+- [Technical architecture](docs/architecture.md)
 
 All project documentation is written in English. The eventual GitHub repository
 will be public. Keep account credentials, calendar samples, attendee details,
