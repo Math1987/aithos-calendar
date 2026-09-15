@@ -135,3 +135,11 @@ zone. Usage can incur storage, requests, execution, logs and transfer charges.
 There is no NAT, provisioned concurrency, database, container service, or new DNS
 zone. At this blank/health stage usage should be low; actual billing depends on
 traffic and account allowances. No fixed monthly price is promised.
+
+### API Gateway authorization boundary
+
+The deployment role manages only API `mftju6d48j` and its child resources. Its ID
+was recorded after first creation so read permissions do not depend on an API-name
+condition that AWS exposes only for UpdateApi/DeleteApi. A deliberate API
+replacement requires reviewing and updating this exact ARN in bootstrap. Routine
+route, integration, stage and function updates do not require that change.

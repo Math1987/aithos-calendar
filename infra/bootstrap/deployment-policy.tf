@@ -46,9 +46,9 @@ resource "aws_iam_role_policy" "deploy" {
       Condition = { StringEquals = { "apigateway:Request/ApiName" = local.name } }
     },
     {
-      Sid       = "ManageApi", Effect = "Allow", Action = ["apigateway:GET", "apigateway:POST", "apigateway:PUT", "apigateway:PATCH", "apigateway:DELETE"],
-      Resource  = ["arn:aws:apigateway:${local.region}::/apis/*"],
-      Condition = { StringEquals = { "apigateway:Resource/ApiName" = local.name } }
+      Sid      = "ManageApi", Effect = "Allow", Action = ["apigateway:GET", "apigateway:POST", "apigateway:PUT", "apigateway:PATCH", "apigateway:DELETE"],
+      Resource = ["arn:aws:apigateway:${local.region}::/apis/mftju6d48j", "arn:aws:apigateway:${local.region}::/apis/mftju6d48j/*"],
+
     },
     {
       Sid      = "ApiDomain", Effect = "Allow", Action = ["apigateway:GET", "apigateway:POST", "apigateway:PATCH", "apigateway:DELETE"],
