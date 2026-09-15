@@ -2,9 +2,9 @@
 
 ## Working agreement
 
-This repository currently contains planning documents only. Stage 1 implementation
-starts after the project owner's launch checkpoint. Create and push the public
-GitHub repository during stage 1, not during local planning.
+Stage 1 was authorized by the project owner and is being implemented. The existing
+public repository is `Math1987/aithos-calendar`; the earlier planning commits are
+preserved. Later stages remain behind their acceptance gates.
 
 Each stage ends with a concrete manual acceptance check and a report of the
 deployed commit, changes, and remaining limitations. Wait for acceptance before

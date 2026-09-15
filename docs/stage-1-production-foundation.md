@@ -1,6 +1,8 @@
 # Stage 1 — Production foundation
 
-Status: ready for launch review; implementation and deployment have not started.
+Status: launch authorized. Implementation is in progress; see [Operations](operations.md)
+for executable commands and the actual repository. The sequence below records the
+approved plan.
 
 ## Outcome and strict scope
 
@@ -20,11 +22,11 @@ No Anakin account or API key is needed to finish this stage.
 | --- | --- | --- |
 | Local repository | `/Volumes/Math17/aithos/R&D/calendar`, initialized on `main` | Preserve planning commits |
 | GitHub visibility | Public | Create only when stage 1 begins |
-| GitHub owner | Authenticated CLI account is `Math1987`; repository owner not yet confirmed | Resolve owner before creation; candidate is `Math1987/calendar` |
+| GitHub owner | Existing public repository confirmed: `Math1987/aithos-calendar` | Reuse the existing empty repository |
 | AWS profile | `aithos-prod` | Refresh SSO and verify active account |
 | AWS region | Profile reports `eu-west-3` | Use Paris for API, Lambda, buckets and logs |
-| AWS account ID | Not verified; SSO session expired during planning | Obtain through STS, never infer from profile name |
-| DNS | User expects Route 53; account/zone access not yet verified | Find authoritative public `aithos.world` zone and inspect requested names |
+| AWS account ID | Verified: `128066560720` | Obtain through STS, never infer from profile name |
+| DNS | Authoritative zone verified: `Z09988302Y6VWTN77SVQ8` | Find authoritative public `aithos.world` zone and inspect requested names |
 | Website certificate region | `us-east-1` required by CloudFront | Configure a second AWS provider alias |
 | Tools | `aws`, `gh`, Terraform available; local Terraform reports `1.14.6` | Pin a supported Terraform version consistently at implementation |
 

@@ -5,13 +5,13 @@ public Google booking-page link, and find a suitable appointment automatically.
 
 ## Current status
 
-Local planning only. No application, Terraform resources, GitHub repository,
-workflow, or deployment has been created yet. The next implementation increment
-is limited to production delivery of `GET /health` and an empty static website.
-Implementation starts after the planning checkpoint with the project owner.
+Stage 1 is implemented; first production deployment is being prepared. It contains
+only `GET /health`, a blank static website, Terraform and GitHub Actions.
+Repository: https://github.com/Math1987/aithos-calendar (public).
 
 ## Documentation
 
+- [Operations and deployment](docs/operations.md)
 - [Product design](docs/product-design.md)
 - [Technical architecture](docs/architecture.md)
 - [Implementation plan](docs/implementation-plan.md)

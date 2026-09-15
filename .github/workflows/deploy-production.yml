@@ -1,0 +1,54 @@
+name: Deploy production
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: calendar-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      TF_IN_AUTOMATION: "true"
+      TF_VAR_route53_zone_id: ${{ vars.ROUTE53_ZONE_ID }}
+      TF_VAR_lambda_execution_role_arn: ${{ vars.LAMBDA_EXECUTION_ROLE_ARN }}
+      TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+    defaults:
+      run:
+        working-directory: infra/production
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with:
+          terraform_version: 1.14.6
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: calendar-${{ github.run_id }}
+          allowed-account-ids: "128066560720"
+      - name: Initialize remote state
+        run: terraform init -input=false -lockfile=readonly -backend-config="bucket=$TF_STATE_BUCKET"
+      - name: Deploy
+        run: terraform apply -input=false -auto-approve -lock-timeout=5m
+      - name: Deployment summary
+        env:
+          DEPLOYED_COMMIT: ${{ github.sha }}
+        run: |
+          {
+            echo "## Calendar production"
+            echo "Commit: $DEPLOYED_COMMIT"
+            echo "API: $(terraform output -raw health_url)"
+            echo "Website: $(terraform output -raw website_url)"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,76 @@
+resource "aws_s3_bucket" "website" {
+  bucket = local.website_bucket
+}
+resource "aws_s3_bucket_public_access_block" "website" {
+  bucket                  = aws_s3_bucket.website.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+resource "aws_s3_bucket_server_side_encryption_configuration" "website" {
+  bucket = aws_s3_bucket.website.id
+  rule {
+    apply_server_side_encryption_by_default { sse_algorithm = "AES256" }
+  }
+}
+resource "aws_s3_object" "index" {
+  bucket        = aws_s3_bucket.website.id
+  key           = "index.html"
+  source        = "${path.module}/../../web/index.html"
+  source_hash   = filemd5("${path.module}/../../web/index.html")
+  content_type  = "text/html; charset=utf-8"
+  cache_control = "no-store"
+}
+resource "aws_cloudfront_origin_access_control" "website" {
+  name                              = local.name
+  origin_access_control_origin_type = "s3"
+  signing_behavior                  = "always"
+  signing_protocol                  = "sigv4"
+}
+resource "aws_cloudfront_distribution" "website" {
+  enabled             = true
+  is_ipv6_enabled     = true
+  comment             = "Calendar production static website"
+  default_root_object = "index.html"
+  aliases             = [local.website_domain]
+  price_class         = "PriceClass_100"
+  wait_for_deployment = true
+  origin {
+    domain_name              = aws_s3_bucket.website.bucket_regional_domain_name
+    origin_id                = "website"
+    origin_access_control_id = aws_cloudfront_origin_access_control.website.id
+  }
+  default_cache_behavior {
+    allowed_methods        = ["GET", "HEAD"]
+    cached_methods         = ["GET", "HEAD"]
+    target_origin_id       = "website"
+    viewer_protocol_policy = "redirect-to-https"
+    # AWS managed CachingDisabled policy; no invalidation step for the empty site.
+    cache_policy_id = "413f160f-5f9f-46cd-a852-5f35b26c8a2a"
+  }
+  restrictions {
+    geo_restriction { restriction_type = "none" }
+  }
+  viewer_certificate {
+    acm_certificate_arn      = aws_acm_certificate_validation.website.certificate_arn
+    ssl_support_method       = "sni-only"
+    minimum_protocol_version = "TLSv1.2_2021"
+  }
+}
+resource "aws_s3_bucket_policy" "website" {
+  bucket = aws_s3_bucket.website.id
+  policy = jsonencode({ Version = "2012-10-17", Statement = [
+    {
+      Effect    = "Allow", Principal = { Service = "cloudfront.amazonaws.com" }, Action = "s3:GetObject",
+      Resource  = "${aws_s3_bucket.website.arn}/*",
+      Condition = { StringEquals = { "AWS:SourceArn" = aws_cloudfront_distribution.website.arn } }
+    },
+    {
+      Effect    = "Deny", Principal = "*", Action = "s3:*",
+      Resource  = [aws_s3_bucket.website.arn, "${aws_s3_bucket.website.arn}/*"],
+      Condition = { Bool = { "aws:SecureTransport" = "false" } }
+    }
+  ] })
+  depends_on = [aws_s3_bucket_public_access_block.website]
+}

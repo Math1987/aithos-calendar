@@ -1,6 +1,6 @@
 # Technical architecture
 
-Status: proposed implementation architecture, not deployed. Stage 1 is deliberately
+Status: stage 1 implementation prepared; deployment verification pending. Stage 1 is deliberately
 limited to HTTP health, a blank static website, and production delivery.
 
 ## Confirmed choices

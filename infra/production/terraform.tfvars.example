@@ -1,0 +1,2 @@
+route53_zone_id = "Z09988302Y6VWTN77SVQ8"
+lambda_execution_role_arn = "arn:aws:iam::128066560720:role/calendar-production-health"
