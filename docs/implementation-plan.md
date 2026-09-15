@@ -2,7 +2,7 @@
 
 ## Working agreement
 
-Stage 1 was authorized by the project owner and is being implemented. The existing
+Stage 1 is deployed; see [verification](stage-1-verification.md). The existing
 public repository is `Math1987/aithos-calendar`; the earlier planning commits are
 preserved. Later stages remain behind their acceptance gates.
 
@@ -42,6 +42,5 @@ before considering containers. No LLM is required by these stages.
 
 ## Next action
 
-Review [Stage 1: production foundation](stage-1-production-foundation.md), resolve
-its launch prerequisites, then explicitly start stage 1. The future product and
-provider questions do not block implementing health and the blank website.
+Review the [stage-1 verification](stage-1-verification.md) and manually open both
+production URLs. Stage 2 begins only after owner acceptance and explicit instruction.

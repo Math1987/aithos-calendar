@@ -1,8 +1,8 @@
 # Stage 1 — Production foundation
 
-Status: launch authorized. Implementation is in progress; see [Operations](operations.md)
-for executable commands and the actual repository. The sequence below records the
-approved plan.
+Status: deployed. See [Verification](stage-1-verification.md) for the observed results
+and [Operations](operations.md) for executable commands. The original planning
+sequence below is retained as history; implementation adjustments take precedence.
 
 ## Implementation adjustment: API access logs
 

@@ -5,20 +5,20 @@ public Google booking-page link, and find a suitable appointment automatically.
 
 ## Current status
 
-Stage 1 is implemented; first production deployment is being prepared. It contains
+Stage 1 is deployed on AWS. It contains
 only `GET /health`, a blank static website, Terraform and GitHub Actions.
 Repository: https://github.com/Math1987/aithos-calendar (public).
 
 ## Documentation
 
+- [Stage 1 verification](docs/stage-1-verification.md)
 - [Operations and deployment](docs/operations.md)
 - [Product design](docs/product-design.md)
 - [Technical architecture](docs/architecture.md)
 - [Implementation plan](docs/implementation-plan.md)
 - [Stage 1: production foundation](docs/stage-1-production-foundation.md)
 
-All project documentation is written in English. The eventual GitHub repository
-will be public. Keep account credentials, calendar samples, attendee details,
+All project documentation is written in English. The GitHub repository is public. Keep account credentials, calendar samples, attendee details,
 Terraform state, and generated artifacts out of Git.
 
 ## Deployment targets
@@ -32,4 +32,4 @@ Terraform state, and generated artifacts out of Git.
 | Primary region | `eu-west-3` (profile configuration) |
 | Environment | Production only |
 
-These are target addresses, not a claim that the service is deployed.
+The health endpoint and blank website are live. Later product stages have not started.
