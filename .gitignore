@@ -1,0 +1,27 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials*.json
+__pycache__/
+*.py[cod]
+.venv/
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.plan
+*.tfvars
+*.tfvars.json
+*.tfbackend
+backend.generated.tf
+crash.log
+crash.*.log
+.build/
+dist/
+*.zip
+private/
+
+# Commit .terraform.lock.hcl and example configuration files.
