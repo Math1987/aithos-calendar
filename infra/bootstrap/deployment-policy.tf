@@ -4,6 +4,7 @@ resource "aws_iam_role_policy" "deploy" {
   name = "production-deployment"
   role = aws_iam_role.deploy.id
   policy = jsonencode({ Version = "2012-10-17", Statement = [
+    { Sid = "ReadCachePolicies", Effect = "Allow", Action = ["cloudfront:ListCachePolicies", "cloudfront:GetCachePolicy"], Resource = "*" },
     {
       Sid = "StateListing", Effect = "Allow", Action = ["s3:ListBucket"], Resource = aws_s3_bucket.state.arn,
 
@@ -27,7 +28,7 @@ resource "aws_iam_role_policy" "deploy" {
     },
     {
       Sid      = "HealthFunction", Effect = "Allow",
-      Action   = ["lambda:CreateFunction", "lambda:GetFunction", "lambda:GetFunctionConfiguration", "lambda:GetPolicy", "lambda:ListVersionsByFunction", "lambda:ListTags", "lambda:TagResource", "lambda:UntagResource", "lambda:UpdateFunctionCode", "lambda:UpdateFunctionConfiguration", "lambda:DeleteFunction", "lambda:AddPermission", "lambda:RemovePermission"],
+      Action   = ["lambda:CreateFunction", "lambda:GetFunction*", "lambda:GetRuntimeManagementConfig", "lambda:GetPolicy", "lambda:ListVersionsByFunction", "lambda:ListTags", "lambda:TagResource", "lambda:UntagResource", "lambda:UpdateFunctionCode", "lambda:UpdateFunctionConfiguration", "lambda:DeleteFunction", "lambda:AddPermission", "lambda:RemovePermission"],
       Resource = "arn:aws:lambda:${local.region}:${local.account}:function:${local.name}-health"
     },
     {
@@ -54,7 +55,7 @@ resource "aws_iam_role_policy" "deploy" {
       Resource = ["arn:aws:apigateway:${local.region}::/domainnames", "arn:aws:apigateway:${local.region}::/domainnames/api.calendar.aithos.world", "arn:aws:apigateway:${local.region}::/domainnames/api.calendar.aithos.world/*"]
     },
     {
-      Sid      = "ApiTags", Effect = "Allow", Action = ["apigateway:GET", "apigateway:PUT", "apigateway:DELETE"],
+      Sid      = "ApiTags", Effect = "Allow", Action = ["apigateway:GET", "apigateway:POST", "apigateway:PUT", "apigateway:DELETE"],
       Resource = "arn:aws:apigateway:${local.region}::/tags/*"
     },
     {

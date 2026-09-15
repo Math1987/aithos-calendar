@@ -1,3 +1,7 @@
+data "aws_cloudfront_cache_policy" "disabled" {
+  name = "Managed-CachingDisabled"
+}
+
 resource "aws_s3_bucket" "website" {
   bucket = local.website_bucket
 }
@@ -47,7 +51,7 @@ resource "aws_cloudfront_distribution" "website" {
     target_origin_id       = "website"
     viewer_protocol_policy = "redirect-to-https"
     # AWS managed CachingDisabled policy; no invalidation step for the empty site.
-    cache_policy_id = "413f160f-5f9f-46cd-a852-5f35b26c8a2a"
+    cache_policy_id = data.aws_cloudfront_cache_policy.disabled.id
   }
   restrictions {
     geo_restriction { restriction_type = "none" }
