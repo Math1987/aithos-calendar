@@ -14,6 +14,8 @@ Implementation starts after the planning checkpoint with the project owner.
 
 - [Product design](docs/product-design.md)
 - [Technical architecture](docs/architecture.md)
+- [Implementation plan](docs/implementation-plan.md)
+- [Stage 1: production foundation](docs/stage-1-production-foundation.md)
 
 All project documentation is written in English. The eventual GitHub repository
 will be public. Keep account credentials, calendar samples, attendee details,
