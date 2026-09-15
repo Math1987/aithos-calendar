@@ -138,7 +138,7 @@ traffic and account allowances. No fixed monthly price is promised.
 
 ### API Gateway authorization boundary
 
-The deployment role manages only API `mftju6d48j` and its child resources. Its ID
+The deployment role manages only API `if6esu4a73` and its child resources. Its ID
 was recorded after first creation so read permissions do not depend on an API-name
 condition that AWS exposes only for UpdateApi/DeleteApi. A deliberate API
 replacement requires reviewing and updating this exact ARN in bootstrap. Routine
