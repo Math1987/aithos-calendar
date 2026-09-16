@@ -3,6 +3,8 @@
 Status: deployed and verified locally and in production on 2026-09-16.
 This is the historical gate-2 acceptance record, following the Rust foundation.
 For the subsequent Alice → Bob exchange, see [gate 3](agent-collaboration.md).
+Gate 4 retired these production fixture URLs. For current production commands,
+use [dynamic identities](dynamic-agents.md); the commands below are historical.
 
 ## What is real and what is mocked
 
@@ -136,7 +138,7 @@ apply, checks health plus catalog → cards → greetings and tenant rejection:
 python3 scripts/smoke-a2a.py "$CATALOG_URL"
 ```
 
-This smoke script expects the two mock identifiers and follows supplied URLs;
+At this gate the smoke script expected the two mock identifiers and followed supplied URLs;
 use a trusted test catalog. It uses the wire protocol directly. The separate
 manual acceptance above uses the official A2A client implementation.
 

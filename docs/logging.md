@@ -23,8 +23,8 @@ errors are `WARN`. A valid A2A reply containing a business outcome such as
 
 Each handled A2A request has a span (request context) with `span.tenant` and
 `span.trace_id`. For SendMessage, a valid UUID supplied in metadata
-`calendarTraceId` is propagated; otherwise a new UUID is generated. Alice passes
-it to Bob as before, and response data still contains `trace_id` at the same place.
+`calendarTraceId` is propagated; otherwise a new UUID is generated. The coordinating agent passes
+it to the recipient, and response data still contains `trace_id` at the same place.
 The context is attached to the async future, so concurrent requests do not share
 or overwrite their tenant/trace fields. Startup/runtime events may lack this context.
 
@@ -91,8 +91,8 @@ python3 scripts/with-env.py aws logs tail \
   --since 10m --format short --filter-pattern '"trace_id"' --follow
 ```
 
-In another terminal, run the Alice → Bob CLI request from the
-[collaboration guide](agent-collaboration.md). Stop the log tail with Ctrl+C.
+In another terminal, run the host → guest CLI request from the
+[dynamic identities guide](dynamic-agents.md). Stop the log tail with Ctrl+C.
 
 For **SDK events only**, replace the filter argument with:
 
@@ -127,7 +127,7 @@ fields @timestamp, level, target, span.tenant, message, event, status, code, spa
 concurrently and checks the emitted JSON. It verifies application/client/server
 sources, matching trace IDs, correct caller/recipient tenants, a server warning
 for an unknown tenant, and that sentinel body/header values are absent. The
-existing 14 tests remain; `cargo test --locked` now runs 15 tests.
+logging gate ran 15 tests. Gate 4 adds three identity tests, for 18 in total.
 
 Production acceptance on **September 16, 2026**:
 

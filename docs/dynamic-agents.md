@@ -1,6 +1,6 @@
 # Gate 4 — persistent identities and Aithos publication
 
-Status: implementation and local acceptance complete; production deployment pending.
+Status: deployed and manually verified on September 16, 2026.
 
 ## Scope and decisions
 
@@ -157,7 +157,7 @@ to have verified collaboration. Full gate acceptance requires two published agen
 
 Alice and Bob remain **local test fixtures only**. The Lambda always uses DynamoDB;
 there is no production fixture fallback. Existing `/agents/alice/…` and `/agents/bob/…`
-URLs will return 404. `CALENDAR_LISTEN` still runs isolated local fixtures.
+URLs return 404. `CALENDAR_LISTEN` still runs isolated local fixtures.
 
 ## Validation record
 
@@ -169,4 +169,48 @@ through registry-hosted cards. Existing interval, routing and logging tests rema
 
 Bootstrap: reviewed and applied 2 IAM policies, 0 changes, 0 deletions. Both policies
 are scoped to `calendar-production-agents`; production CI still cannot change IAM.
-Production deployment and manual acceptance pending.
+Production:
+
+- Commit: `4c1e1bc869416a21e045fbe54a170220f3d7a90f`.
+- [GitHub Actions run](https://github.com/Math1987/aithos-calendar/actions/runs/35070013069)
+  passed all 18 Rust tests, Linux build, deployment and initial empty-catalog readiness.
+- Terraform: **7 added, 1 changed, 0 destroyed**. One DynamoDB table, three admin
+  routes and three invoke permissions; the existing Lambda was updated.
+- Table is ACTIVE, PAY_PER_REQUEST, with SSE, point-in-time recovery and deletion
+  protection enabled. A count-only scan returned exactly two records.
+- Anonymous PUT/GET/POST admin requests returned 403. Signed creation and status
+  succeeded; repeated identical creation preserved identity; changed content returned
+  409. Other-owner isolation was verified in local integration tests.
+- Both initial writes were accepted by Aithos before their public cards became
+  readable. Calendar returned 202 `registry_not_ready` and kept them out of the
+  catalog. Retrying publication with the original UUIDs succeeded. Both registry
+  entries remain ACTIVE at sequence 1 after retries and repeated creation.
+- `aithos verify` validated both ES256 signatures. This verifies card/key consistency;
+  it does not certify a person, organization, Google calendar or endpoint ownership.
+- Registry and Calendar card copies were byte-identical. The official A2A CLI
+  0.2.1 discovered cards from the catalog and returned 09:30–10:00 UTC in both
+  directions, with `mock: true` and `reserved: false`.
+- Full dynamic smoke checks passed: greetings, availability, 30-minute match,
+  60-minute no-match, missing peer and missing/unknown tenant. Alice/Bob card URLs
+  now return 404. Health and blank HTTPS website still pass.
+- CloudWatch trace `01a0a933-17da-7760-afb6-d956f9df09e4` contains 10 events across
+  two Lambda execution environments: 4 Calendar events, 2 SDK client events and
+  4 SDK server events. Observed maximum memory during acceptance: 41 MB of 128 MB;
+  this is a test observation, not a load-capacity guarantee.
+
+### Reuse the deployed acceptance agents
+
+These are persistent mock agents, not hardcoded runtime fixtures:
+
+| Role | Calendar tenant | Aithos card |
+| --- | --- | --- |
+| Host | `8900e702-f5e1-4eaf-8a4a-63f83abb1490` | [Signed card](https://registry.aithos.world/v1/agents/Ffl_yT1NB4GAZaw-qzvfbZA4Afea7jgl7yFPK5SWKdo/agent-card.json) |
+| Guest | `ab1a9300-f508-4409-80f0-d9c7c0905398` | [Signed card](https://registry.aithos.world/v1/agents/ze68uJWcuTHVGA6OZJdm80quFMbrV7DQYGpyGJOqTzI/agent-card.json) |
+
+To repeat the public CLI check without creating anything, set these variables
+and use the catalog/CLI commands above:
+
+```sh
+HOST_ID=8900e702-f5e1-4eaf-8a4a-63f83abb1490
+GUEST_ID=ab1a9300-f508-4409-80f0-d9c7c0905398
+```
