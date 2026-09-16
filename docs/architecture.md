@@ -1,7 +1,7 @@
 # Technical architecture
 
-Status: stage 1 is deployed with a Rust Lambda. Stage 1 is deliberately
-limited to HTTP health, a blank static website, and production delivery.
+Status: the Rust foundation is deployed; the Alice/Bob mock A2A gate is being added.
+The sections below describe the foundation; the A2A section records its extension.
 
 ## Confirmed choices
 
@@ -179,7 +179,7 @@ resources. A2A discovery does not prove page ownership or grant permission to
 book for someone. One designated organizer creates one booking. No A2A SDK,
 registry integration, database, worker, or LLM is installed for health.
 
-## Next A2A gate — not deployed yet
+## A2A discovery and mock-agent gate
 
 One service implementation will host multiple logical agents. Each has an ID,
 Agent Card and configuration; later each may have separate memory. Start with
@@ -199,8 +199,8 @@ fixed Alice and Bob fixtures, without an LLM or calendar calls.
 - The catalog lists card URLs; each card still needs its own serving route.
   Integrate the existing Aithos registry when agent creation becomes dynamic.
 
-Use the official A2A Rust SDK and evaluate the AI Catalog Rust library at that
-implementation gate. Keep application behavior separate from transport so fixture
+The mock gate uses official `a2a-server-lf` 0.4.4, `a2a-lf` 0.3.1 and
+`ai-catalog` 0.2.1. See [CLI tests and implementation](a2a-cli-test.md). Keep application behavior separate from transport so fixture
 responses can be replaced without changing discovery or tenant routing.
 
 ## Explicitly absent from stage 1

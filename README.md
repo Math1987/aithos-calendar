@@ -5,12 +5,15 @@ public Google booking-page link, and find a suitable appointment automatically.
 
 ## Current status
 
-Stage 1 is deployed on AWS. It contains
-only a Rust `GET /health` Lambda, a blank static website, Terraform and GitHub Actions.
+The Rust production foundation is deployed. The next gate adds a URL catalog,
+Alice/Bob Agent Cards and a shared A2A 1.0 JSON-RPC endpoint with mock greetings.
+See the [CLI test guide](docs/a2a-cli-test.md) for deployment status and commands.
+The static website remains blank.
 Repository: https://github.com/Math1987/aithos-calendar (public).
 
 ## Documentation
 
+- [Alice/Bob CLI test](docs/a2a-cli-test.md)
 - [Rust migration](docs/rust-migration.md)
 - [Stage 1 verification](docs/stage-1-verification.md)
 - [Operations and deployment](docs/operations.md)
@@ -33,4 +36,4 @@ Terraform state, and generated artifacts out of Git.
 | Primary region | `eu-west-3` (profile configuration) |
 | Environment | Production only |
 
-The health endpoint and blank website are live. Later product stages have not started.
+Calendar reading, booking, registry publication and LLM integration have not started.

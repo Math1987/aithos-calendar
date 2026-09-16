@@ -2,8 +2,9 @@
 
 ## Scope
 
-Stage 1 deploys only a liveness endpoint and blank static website. No calendars,
-booking provider, application database, or A2A implementation is running.
+The foundation serves health and a blank static website. The Alice/Bob gate
+extends the same Lambda with mock A2A and discovery; see the [CLI guide](a2a-cli-test.md)
+for current verification. No calendars, booking provider or database are used.
 
 - Repository: https://github.com/Math1987/aithos-calendar (public).
 - AWS: account `128066560720`, region `eu-west-3` (Paris).

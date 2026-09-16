@@ -9,7 +9,7 @@ One runtime hosts several logical agents. The public repository is
 
 Each gate ends with a manual acceptance check, deployed commit and known limits.
 Wait for owner acceptance before the next gate; do not provision future resources
-in advance. The current authorized scope is the Rust health migration only.
+in advance. The current authorized scope is the Alice/Bob A2A discovery and CLI gate.
 
 ## Gates
 
@@ -17,7 +17,7 @@ in advance. The current authorized scope is the Rust health migration only.
 | --- | --- | --- |
 | 1. AWS foundation — complete | OIDC CI/CD, health, blank HTTPS website, Terraform | Both domains work; repeat apply changes nothing. See [verification](stage-1-verification.md). |
 | 1 bis. Rust — complete | Replace Python handler with Rust; build Linux ZIP in CI | Same health JSON, `provided.al2023`, successful deployment and repeat apply without infrastructure changes |
-| 2. A2A and catalog fixtures | Official Rust A2A SDK; fixed Alice/Bob cards; URL catalog; deterministic responses | Start from catalog URL in CLI, fetch each card, call its tenant, obtain distinct Hello responses; reject unknown tenant |
+| 2. A2A and catalog fixtures — in progress | Official Rust A2A SDK; fixed Alice/Bob cards; URL catalog; deterministic responses | Start from catalog URL in CLI, fetch each card, call its tenant, obtain distinct Hello responses; reject unknown tenant |
 | 3. Agent-to-agent exchange | Alice calls Bob through real A2A HTTP; behavior still mocked | One traced Alice → Bob exchange; correct recipient configuration, bounded call flow, no recursive loop |
 | 4. Dynamic identities and registry | Create agent/card, publish through Aithos and include card URL in catalog | Create two identities, discover and call both; verify ownership/isolation and retry-safe publication; retire hardcoded production fixtures |
 | 5. Google calendar logic | Replaceable public-page HTTP reader and deterministic interval selection | Controlled calendars: differing appointment durations, busy event, no common interval; use host duration and verify the full interval |
@@ -52,3 +52,5 @@ adding a permanent confirmation page to the agreed flow.
 For gate 7, an LLM is an optional decision-making component, not a prerequisite
 for A2A communication. Keep deterministic scheduling and authorization checks in
 application code.
+
+Manual commands and acceptance evidence: [Alice/Bob CLI test](a2a-cli-test.md).

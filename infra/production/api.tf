@@ -21,6 +21,9 @@ resource "aws_lambda_function" "health" {
   filename         = data.archive_file.health.output_path
   source_code_hash = data.archive_file.health.output_base64sha256
   depends_on       = [aws_cloudwatch_log_group.lambda]
+  environment {
+    variables = { CALENDAR_PUBLIC_URL = "https://${local.api_domain}" }
+  }
 }
 
 resource "aws_apigatewayv2_api" "api" {
@@ -69,4 +72,29 @@ resource "aws_apigatewayv2_api_mapping" "api" {
   api_id      = aws_apigatewayv2_api.api.id
   domain_name = aws_apigatewayv2_domain_name.api.id
   stage       = aws_apigatewayv2_stage.production.id
+}
+
+# Discovery and mock A2A share the existing function and integration.
+locals {
+  agent_routes = {
+    catalog = { method = "GET", path = "/.well-known/ai-catalog.json", invoke_path = "/.well-known/ai-catalog.json" }
+    cards   = { method = "GET", path = "/agents/{tenant}/agent-card.json", invoke_path = "/agents/*/agent-card.json" }
+    a2a     = { method = "POST", path = "/a2a", invoke_path = "/a2a" }
+  }
+}
+
+resource "aws_apigatewayv2_route" "agents" {
+  for_each  = local.agent_routes
+  api_id    = aws_apigatewayv2_api.api.id
+  route_key = "${each.value.method} ${each.value.path}"
+  target    = "integrations/${aws_apigatewayv2_integration.health.id}"
+}
+
+resource "aws_lambda_permission" "agents" {
+  for_each      = local.agent_routes
+  statement_id  = "AllowAgentRoute-${each.key}"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.health.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.api.execution_arn}/$default/${each.value.method}${each.value.invoke_path}"
 }
