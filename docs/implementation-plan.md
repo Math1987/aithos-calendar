@@ -2,45 +2,53 @@
 
 ## Working agreement
 
-Stage 1 is deployed; see [verification](stage-1-verification.md). The existing
-public repository is `Math1987/aithos-calendar`; the earlier planning commits are
-preserved. Later stages remain behind their acceptance gates.
+The production foundation is deployed. The primary learning objective is A2A:
+prove discovery, recipient routing and collaboration before adding calendar logic.
+One runtime hosts several logical agents. The public repository is
+`Math1987/aithos-calendar`.
 
-Each stage ends with a concrete manual acceptance check and a report of the
-deployed commit, changes, and remaining limitations. Wait for acceptance before
-starting the next stage. Later stages are a roadmap, not current implementation
-scope. Do not provision their resources in advance.
+Each gate ends with a manual acceptance check, deployed commit and known limits.
+Wait for owner acceptance before the next gate; do not provision future resources
+in advance. The current authorized scope is the Rust health migration only.
 
-## Stages
+## Gates
 
-| Stage | Deliverable | Manual acceptance | Resources added |
-| --- | --- | --- | --- |
-| **1. Production foundation** | GitHub OIDC CI/CD; health API and blank website on their final domains | Push to `main`; inspect successful deployment; curl exact health JSON; open blank HTTPS site; repeat deployment safely | S3 state and website buckets, IAM/OIDC, Lambda, HTTP API, CloudWatch logs, CloudFront, ACM and scoped Route 53 records |
-| 2. Public-page reading and share links | Replaceable HTTP reader; home, host booking page and tutorial; no booking writes | Paste a valid host URL and open its share link on another device; compare metadata with Google; try an invalid URL | Add persistence for links only when the design requires it, likely one DynamoDB table; no booking secret |
-| 3. Availability matching | Read visitor page and select a host-duration interval; identity/ownership policy decided before enabling bookings | Use two controlled calendars with different appointment durations, an existing event, and no-overlap cases; verify the entire selected interval | Usually reuse existing resources; add another reader only if public pages cannot meet the requirement |
-| 4. Real booking through Anakin | Provider adapter, durable operation, spinner/status, confirmed success/error | Book once on controlled calendars; verify invitee identity and both calendars; refresh/resubmit; exercise failure and uncertain-outcome reconciliation | Anakin account and Secrets Manager secret; durable operation storage and the smallest suitable execution mechanism |
-| 5. A2A collaboration | Two discoverable logical agents on the shared service call the same scheduling application | Discover both Agent Cards, negotiate a time, create one meeting and verify isolation between agents | SDK/transport and persisted agent configuration; reuse infrastructure unless measurements require changes |
+| Gate | Deliverable | Manual acceptance |
+| --- | --- | --- |
+| 1. AWS foundation — complete | OIDC CI/CD, health, blank HTTPS website, Terraform | Both domains work; repeat apply changes nothing. See [verification](stage-1-verification.md). |
+| 1 bis. Rust — current | Replace Python handler with Rust; build Linux ZIP in CI | Same health JSON, `provided.al2023`, successful deployment and repeat apply without infrastructure changes |
+| 2. A2A and catalog fixtures | Official Rust A2A SDK; fixed Alice/Bob cards; URL catalog; deterministic responses | Start from catalog URL in CLI, fetch each card, call its tenant, obtain distinct Hello responses; reject unknown tenant |
+| 3. Agent-to-agent exchange | Alice calls Bob through real A2A HTTP; behavior still mocked | One traced Alice → Bob exchange; correct recipient configuration, bounded call flow, no recursive loop |
+| 4. Dynamic identities and registry | Create agent/card, publish through Aithos and include card URL in catalog | Create two identities, discover and call both; verify ownership/isolation and retry-safe publication; retire hardcoded production fixtures |
+| 5. Google calendar logic | Replaceable public-page HTTP reader and deterministic interval selection | Controlled calendars: differing appointment durations, busy event, no common interval; use host duration and verify the full interval |
+| 6. Booking and minimal UI | Anakin adapter, durable operation, agreed pages and spinner/outcome | One real booking; verify attendee identity, invitation, both calendars, retries and ambiguous provider outcomes |
+| 7. LLM | AWS Bedrock behind an explicit application boundary | Natural-language interaction drives the same tested operations; code enforces availability, identity and duplicate prevention |
 
-Stage 2 can display only the host page until stage 3 is ready. Stage 3 matching
-verification may use a temporary developer-facing command; do not add a permanent
-confirmation screen to the agreed final product flow. In the final flow, pressing
-"Find a time and book" proceeds directly to the spinner and booking outcome.
+## Gate details
 
-At stage 3, decide whether conservative public-page coverage is acceptable; it
-does not prove calendar availability outside exposed booking intervals. Resolve
-the booking identity, ownership/authorization, and required email handling before
-stage 4. A common service mailbox remains an option to evaluate, not an accepted
-substitute for the visitor's identity.
+For gate 2, constructing a client means loading the recipient's card into a
+protocol client. It does not create an agent. CLI → Alice and CLI → Bob are two
+independent tests. Alice → Bob is gate 3, using Bob's card and recipient tenant.
+Tenant routing is not caller authentication.
 
-At stage 4, do not assume Anakin has an idempotency guarantee. Validate its actual
-submission and job-result contract before allowing retries. Never submit another
-booking just because a previous request timed out.
+For gate 4, decide authentication, ownership, persistence and authorization before
+exposing identity creation. A public booking URL alone is not proof of ownership.
+A registry publication failure must be recoverable without creating duplicate
+agents. The catalog lists URLs; cards remain served by Calendar.
 
-Reevaluate ZIP packaging when adding Python dependencies in stages 2–5,
-especially the A2A SDK. Use deterministic Linux-compatible dependency packaging
-before considering containers. No LLM is required by these stages.
+For gate 5, public booking pages expose only their advertised intervals. They do
+not prove availability outside that coverage. Isolate the undocumented HTTP
+protocol, validate URL hosts and redirects, and resolve coverage gaps before
+booking. Match the target appointment duration, not equal page durations.
 
-## Next action
+For gate 6, resolve booking identity and email verification. A shared service
+mailbox is an option to evaluate, not an accepted substitute for the visitor.
+Use durable operation status and an appropriate execution mechanism for Anakin's
+asynchronous work. Do not retry uncertain submissions blindly. Do not keep HTTP
+requests waiting for a long booking operation or run background work after a
+Lambda HTTP response. Follow the [product design](product-design.md), without
+adding a permanent confirmation page to the agreed flow.
 
-Review the [stage-1 verification](stage-1-verification.md) and manually open both
-production URLs. Stage 2 begins only after owner acceptance and explicit instruction.
+For gate 7, an LLM is an optional decision-making component, not a prerequisite
+for A2A communication. Keep deterministic scheduling and authorization checks in
+application code.

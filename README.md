@@ -6,11 +6,12 @@ public Google booking-page link, and find a suitable appointment automatically.
 ## Current status
 
 Stage 1 is deployed on AWS. It contains
-only `GET /health`, a blank static website, Terraform and GitHub Actions.
+only a Rust `GET /health` Lambda, a blank static website, Terraform and GitHub Actions.
 Repository: https://github.com/Math1987/aithos-calendar (public).
 
 ## Documentation
 
+- [Rust migration](docs/rust-migration.md)
 - [Stage 1 verification](docs/stage-1-verification.md)
 - [Operations and deployment](docs/operations.md)
 - [Product design](docs/product-design.md)

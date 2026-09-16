@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       TF_IN_AUTOMATION: "true"
@@ -28,6 +28,18 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
+      - name: Build Rust Lambda
+        working-directory: .
+        run: |
+          rustup show active-toolchain
+          rustup target add x86_64-unknown-linux-musl
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y musl-tools
+          cargo fmt --check
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc cargo build --release --locked --target x86_64-unknown-linux-musl
+          mkdir -p .build
+          install -m 0755 target/x86_64-unknown-linux-musl/release/calendar .build/bootstrap
+          file .build/bootstrap
       - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
         with:
           terraform_version: 1.14.6
@@ -42,6 +54,16 @@ jobs:
         run: terraform init -input=false -lockfile=readonly -backend-config="bucket=$TF_STATE_BUCKET"
       - name: Deploy
         run: terraform apply -input=false -auto-approve -lock-timeout=5m
+      - name: Verify deployed health
+        run: |
+          aws lambda get-function-configuration \
+            --function-name calendar-production-health \
+            --query '{Runtime:Runtime,State:State,LastUpdateStatus:LastUpdateStatus,CodeSha256:CodeSha256}' > lambda-configuration.json
+          cat lambda-configuration.json
+          jq -e '.Runtime == "provided.al2023" and .State == "Active" and .LastUpdateStatus == "Successful"' lambda-configuration.json
+          curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 2 \
+            --max-time 15 "$(terraform output -raw health_url)" > health-response.json
+          python3 -c 'import json; assert json.load(open("health-response.json")) == {"status": "ok", "service": "calendar"}'
       - name: Deployment summary
         env:
           DEPLOYED_COMMIT: ${{ github.sha }}

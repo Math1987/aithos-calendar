@@ -1,6 +1,6 @@
 # Technical architecture
 
-Status: stage 1 implementation prepared; deployment verification pending. Stage 1 is deliberately
+Status: stage 1 is deployed; Rust migration is in progress. Stage 1 is deliberately
 limited to HTTP health, a blank static website, and production delivery.
 
 ## Confirmed choices
@@ -8,7 +8,7 @@ limited to HTTP health, a blank static website, and production delivery.
 | Choice | Reason / boundary |
 | --- | --- |
 | One AWS production environment | No hosted development or staging infrastructure |
-| Python Lambda, ZIP package | Standard library is sufficient for health |
+| Rust Lambda, ZIP package | Share the language with the A2A/catalog ecosystem; minimal `lambda_http` handler |
 | API Gateway HTTP API | Small public HTTP surface; no REST API features needed |
 | Terraform | Own AWS resources, certificates, DNS records, and static object |
 | GitHub Actions on `main` | One delivery path with serialized deployment |
@@ -32,17 +32,16 @@ flowchart TD
     Browser[Browser] --> Web[calendar.aithos.world / CloudFront]
     Web -->|Origin Access Control| Assets[Private S3 / index.html]
     Client[HTTP client] --> API[api.calendar.aithos.world / HTTP API]
-    API -->|GET /health| Lambda[Python Lambda]
+    API -->|GET /health| Lambda[Rust Lambda]
     Lambda --> Logs[CloudWatch Logs]
-    API --> Logs
 ```
 
 ### API
 
 - Primary region: `eu-west-3`, as configured for `aithos-prod`.
-- Python `3.14`, currently a supported stable Lambda runtime; verify availability
-  again when implementing. `x86_64`, 128 MB memory, 5-second timeout initially.
-- Standard-library handler with an API Gateway payload v2 response.
+- Rust `1.95.0`, AWS OS-only runtime `provided.al2023`.
+- Static Linux musl binary, `x86_64`, 128 MB memory, 5-second timeout.
+- `lambda_http` adapts API Gateway HTTP API v2 requests/responses.
 - One public route: `GET /health`.
 - HTTP 200, `Content-Type: application/json`, body:
 
@@ -121,9 +120,10 @@ One workflow, triggered by pushes to `main`; no PR deployment or
 `pull_request_target` execution. Permissions: `contents: read`, `id-token: write`.
 Use a single concurrency group with `cancel-in-progress: false`.
 
-Sequence: checkout -> install pinned Terraform -> assume deployment role using
+Sequence: checkout -> build the locked Rust application for Linux musl -> install pinned Terraform -> assume deployment role using
 OIDC -> initialize remote backend -> noninteractive apply -> publish target URLs
-in the job summary. Terraform builds the Lambda ZIP through `archive_file` and
+in the job summary, after checking runtime configuration and the real health response.
+Terraform packages the executable `.build/bootstrap` through `archive_file` and
 wires its hash to `source_code_hash`; no Docker or separate build service.
 
 Resolve supported provider versions during implementation, commit dependency
@@ -136,13 +136,14 @@ use a subject format containing owner/repository IDs: inspect the actual policy
 format at creation rather than copying an older trust-policy example.
 Do not add a GitHub Environment without adjusting the subject policy.
 
-No unit-test, lint, PR-validation, matrix, release, or staging pipeline at stage 1.
+CI checks Rust formatting, compiles the locked release, and verifies deployed health.
+No separate PR-validation, matrix, release, or staging pipeline at this stage.
 Use manual end-to-end acceptance after deployment. A successful workflow is not
 by itself proof that the service works on its final domains.
 
 ## Future application boundaries — design only
 
-Keep a small Python application with explicit injected dependencies, not a
+Keep a small Rust application with explicit injected dependencies, not a
 plugin framework or a collection of microservices:
 
 | Boundary | Responsibility |
@@ -178,12 +179,36 @@ resources. A2A discovery does not prove page ownership or grant permission to
 book for someone. One designated organizer creates one booking. No A2A SDK,
 registry integration, database, worker, or LLM is installed for health.
 
+## Next A2A gate — not deployed yet
+
+One service implementation will host multiple logical agents. Each has an ID,
+Agent Card and configuration; later each may have separate memory. Start with
+fixed Alice and Bob fixtures, without an LLM or calendar calls.
+
+- Serve URL entries in `/.well-known/ai-catalog.json` pointing to
+  `/agents/alice/agent-card.json` and `/agents/bob/agent-card.json`.
+- Cards advertise the shared A2A service and their own tenant identifier using
+  the supported A2A version's fields and SDK transport mapping.
+- Build a client from the **recipient's** card. Calling Bob uses tenant `bob`.
+  The server validates this recipient and loads Bob's configuration; unknown
+  tenants fail explicitly and must never fall back to another user's config.
+- A tenant selects the recipient. It does not authenticate the caller or authorize
+  calendar access. The external CLI is initially a test caller, not Alice.
+- First test CLI → Alice and CLI → Bob. A later gate tests Alice → Bob over real
+  A2A HTTP, even though both are hosted by the same Lambda service.
+- The catalog lists card URLs; each card still needs its own serving route.
+  Integrate the existing Aithos registry when agent creation becomes dynamic.
+
+Use the official A2A Rust SDK and evaluate the AI Catalog Rust library at that
+implementation gate. Keep application behavior separate from transport so fixture
+responses can be replaced without changing discovery or tenant routing.
+
 ## Explicitly absent from stage 1
 
 Application DynamoDB, Anakin account/secret, OAuth, Google calendar access,
 booking operations, SQS, Step Functions, EventBridge jobs, VPC/NAT, containers,
 ECR, layers, framework, SDK A2A, LLM, application authentication, and product UI.
-Reevaluate ZIP packaging only when real Python dependencies are introduced.
+Keep ZIP packaging while the binary fits Lambda constraints.
 
 ## Sources checked during planning
 

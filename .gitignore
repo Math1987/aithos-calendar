@@ -25,3 +25,6 @@ dist/
 private/
 
 # Commit .terraform.lock.hcl and example configuration files.
+
+# Rust build artifacts (Cargo.lock is tracked).
+/target/

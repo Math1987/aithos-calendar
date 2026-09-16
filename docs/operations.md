@@ -61,11 +61,15 @@ Both use native S3 locking, versioning, encryption, blocked public access and TL
 
 Push `main` to run `.github/workflows/deploy-production.yml`. Deployments are
 serialized without interrupting an active apply. No PR workflow gets AWS access.
-The workflow uses pinned Action commits and provider lockfiles. Terraform archives
-the single Python source into an ignored `infra/production/health.zip`, tracks its
-hash, and manages the HTML object. There is no separate build or upload command.
+The workflow uses pinned Action commits, Rust toolchain and dependency lockfiles.
+Ubuntu 24.04 installs musl-tools and compiles `x86_64-unknown-linux-musl` with
+`cargo build --release --locked`. It copies the executable to `.build/bootstrap`.
+Terraform archives it with mode 0755 into ignored `infra/production/health.zip`,
+tracks its hash and manages the HTML object. No container, Cargo Lambda install,
+artifact bucket or separate upload service is required. See [Rust migration](rust-migration.md).
 
-Inspect changes locally without deploying:
+Inspect Terraform changes locally without deploying, **after producing the same
+Linux executable** at `.build/bootstrap`. A macOS native build cannot run on Lambda:
 
 ```sh
 python3 scripts/with-env.py terraform -chdir=infra/production init \

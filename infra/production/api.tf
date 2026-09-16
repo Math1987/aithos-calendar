@@ -1,7 +1,8 @@
 data "archive_file" "health" {
-  type        = "zip"
-  source_file = "${path.module}/../../src/health/handler.py"
-  output_path = "${path.module}/health.zip"
+  type             = "zip"
+  source_file      = "${path.module}/../../.build/bootstrap"
+  output_path      = "${path.module}/health.zip"
+  output_file_mode = "0755"
 }
 
 resource "aws_cloudwatch_log_group" "lambda" {
@@ -12,8 +13,8 @@ resource "aws_cloudwatch_log_group" "lambda" {
 resource "aws_lambda_function" "health" {
   function_name    = "${local.name}-health"
   role             = var.lambda_execution_role_arn
-  handler          = "handler.handler"
-  runtime          = "python3.14"
+  handler          = "bootstrap"
+  runtime          = "provided.al2023"
   architectures    = ["x86_64"]
   memory_size      = 128
   timeout          = 5
