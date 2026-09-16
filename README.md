@@ -7,8 +7,8 @@ public Google booking-page link, and find a suitable appointment automatically.
 
 The Rust service hosts persistent booking-page agents through one shared
 A2A 1.0 JSON-RPC endpoint. Agent Cards are signed and published on Aithos; Calendar's
-dynamic AI Catalog references their registry URLs. Two agents discovered each
-other and matched mock availability in both directions on September 16, 2026.
+dynamic AI Catalog references their registry URLs. Page agents and existing mock peers discovered each other and matched mock
+availability in both directions on September 16, 2026.
 Public onboarding accepts a Google booking-page URL and reuses its existing agent.
 See [public onboarding](docs/public-onboarding.md) for the current manual test.
 The static website remains blank.

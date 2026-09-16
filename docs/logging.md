@@ -92,7 +92,7 @@ python3 scripts/with-env.py aws logs tail \
 ```
 
 In another terminal, run the host → guest CLI request from the
-[dynamic identities guide](dynamic-agents.md). Stop the log tail with Ctrl+C.
+[public onboarding guide](public-onboarding.md). Stop the log tail with Ctrl+C.
 
 For **SDK events only**, replace the filter argument with:
 
@@ -127,7 +127,8 @@ fields @timestamp, level, target, span.tenant, message, event, status, code, spa
 concurrently and checks the emitted JSON. It verifies application/client/server
 sources, matching trace IDs, correct caller/recipient tenants, a server warning
 for an unknown tenant, and that sentinel body/header values are absent. The
-logging gate ran 15 tests. Gate 4 adds three identity tests, for 18 in total.
+logging gate ran 15 tests. Public onboarding now brings the deterministic suite to 21 tests; the separate
+read-only Google provider check is opt-in.
 
 Production acceptance on **September 16, 2026**:
 

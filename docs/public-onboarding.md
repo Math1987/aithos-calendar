@@ -1,6 +1,6 @@
 # Public onboarding: one Google booking page, one agent
 
-Status: implementation and local acceptance complete; production verification pending.
+Status: deployed and manually verified on September 16, 2026.
 This supersedes the operator-only creation API from the first Gate 4 deployment.
 
 ## Contract
@@ -192,4 +192,38 @@ The optional read-only provider check runs separately:
 GOOGLE_BOOKING_TEST_URL="$BOOKING_URL" cargo test --locked --test google_live -- --ignored
 ```
 
-Production acceptance will be recorded after deployment.
+Production acceptance:
+
+- Application commit `051d4a265c977e5370948b6120d84e04ad786bbb`;
+  [successful CI run](https://github.com/Math1987/aithos-calendar/actions/runs/35075008518).
+  All 21 deterministic tests passed. The opt-in Google check also passed locally;
+  it is intentionally ignored in CI.
+- Terraform: 2 added (public route and invoke permission), 1 changed (Lambda),
+  6 removed (three old admin routes and their invoke permissions). No database,
+  record, IAM policy, domain or website was removed. API Gateway confirms
+  `POST /agents` has `AuthorizationType: NONE`.
+- Concurrent unauthenticated short/long submissions returned the same ID, Aithos
+  key identity, card URL and share URL. Initial publication was pending; repeated
+  POSTs completed it using the same signed card. Registry sequence remains 1.
+- Short URL, canonical long URL, query/fragment variant and account-selector
+  variant all returned the same published response. A filtered, count-only
+  DynamoDB scan confirmed exactly one record for the canonical Google page.
+- The table contains four records: the new page agent and three retained older
+  mock records. One older record remains pending; it has no Google-page mapping
+  and is not automatically published or associated with the submitted URL.
+- Invalid host returned 400, extra fields and nonexistent Google page returned
+  422, oversized body returned 413, and the retired admin endpoint returned 404.
+- Aithos signature verification passed; local and registry card bytes matched.
+  The full catalog smoke check passed for all three published agents.
+- Official CLI tests passed both directions between the new page agent and an
+  existing mock peer: 30 minutes yielded `slot_found`, 60 minutes yielded
+  `no_common_slot`; all responses retained `mock: true`, `reserved: false`.
+- Trace `01a0a965-b122-7294-b3bc-c6039f4b6128` has 10 correlated events across
+  two Lambda execution environments, including Calendar and both SDK sources.
+
+The supplied test link is now registered, so the manual command above tests reuse
+immediately. Use another real, previously unsubmitted booking page to test fresh
+creation. The published tenant is
+`84cfef4e2ed5ae556c8589553884efb2421b573000bdd48503fa12d6b66c28d7`;
+its [Aithos card](https://registry.aithos.world/v1/agents/LaVJrf2LYeFHlDcaiDRYarQU3m3tJEhN5JavvyRjRTI/agent-card.json)
+is shared by all equivalent URL submissions.

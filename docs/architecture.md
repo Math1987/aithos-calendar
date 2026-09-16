@@ -232,11 +232,11 @@ background worker or external calendar integration is introduced.
 
 ## Gate 4: persistent identities
 
-The existing Lambda now supports DynamoDB-backed agents and AWS IAM protected
-administration. Aithos hosts signed card bytes; Calendar projects confirmed
+The existing Lambda supports DynamoDB-backed agents with anonymous booking-page
+onboarding. Aithos hosts signed card bytes; Calendar projects confirmed
 publications into its AI Catalog and keeps serving identical card bytes locally.
-See [dynamic identities](dynamic-agents.md) for the ownership model, key custody,
-idempotency, publication recovery, scoped infrastructure and current limits.
+See [public onboarding](public-onboarding.md) for uniqueness, retries and current
+limits, and the [initial identity deployment](dynamic-agents.md) for key custody.
 
 ## Public onboarding correction
 
