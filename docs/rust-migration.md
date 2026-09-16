@@ -1,6 +1,6 @@
 # Rust health migration
 
-Status: implementation ready; production verification pending.
+Status: deployed and verified on 2026-09-16, including repeatability.
 
 ## Scope and choices
 
@@ -48,4 +48,19 @@ by the workflow. `target/`, `.build/`, ZIP files and local credentials are ignor
 
 ## Verification record
 
-Pending deployment.
+- Application commit: `6f2a8ccb612bf43027eb508206b37cbad16fba26`.
+- [Initial production deployment](https://github.com/Math1987/aithos-calendar/actions/runs/35058574393/attempts/1): successful.
+- Native compile, formatting, Terraform validation and local Runtime API smoke
+  check passed. The smoke check sent an API Gateway v2 event through the actual
+  executable and asserted status, JSON body, content type and no-store headers.
+- CI produced an x86-64 static PIE Linux executable. Terraform changed only
+  `aws_lambda_function.health` in place: 0 added, 1 changed, 0 destroyed.
+- AWS reports `provided.al2023`, `Active`, `Successful`. Deployed ZIP SHA-256:
+  `HuVEgGM9fu0PT+Blo1C2cen8NesZFyl8Pi6Oh7cvju8=`.
+- Public HTTPS health returns exact expected JSON and headers; unknown route
+  returns 404; website returns the original empty-body HTML with HTTP 200.
+- CloudWatch confirms a successful invocation of the provided AL2023 runtime.
+  The first observed report used 19 MB; initialization was 34.81 ms and handler
+  duration 1.14 ms. These are one observation, not a performance guarantee.
+- No A2A or catalog endpoint has been implemented in this migration.
+- [Repeat deployment](https://github.com/Math1987/aithos-calendar/actions/runs/35058574393/attempts/2): successful; 0 added, 0 changed, 0 destroyed. A fresh Linux build produced the same deployed ZIP hash and passed the public health check again.

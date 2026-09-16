@@ -1,6 +1,6 @@
 # Technical architecture
 
-Status: stage 1 is deployed; Rust migration is in progress. Stage 1 is deliberately
+Status: stage 1 is deployed with a Rust Lambda. Stage 1 is deliberately
 limited to HTTP health, a blank static website, and production delivery.
 
 ## Confirmed choices
