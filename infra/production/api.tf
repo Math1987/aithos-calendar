@@ -36,6 +36,12 @@ resource "aws_apigatewayv2_api" "api" {
   name                         = local.name
   protocol_type                = "HTTP"
   disable_execute_api_endpoint = true
+  cors_configuration {
+    allow_origins = ["https://${local.website_domain}"]
+    allow_methods = ["GET", "POST", "OPTIONS"]
+    allow_headers = ["content-type", "a2a-version"]
+    max_age       = 300
+  }
 }
 resource "aws_apigatewayv2_integration" "health" {
   api_id                 = aws_apigatewayv2_api.api.id

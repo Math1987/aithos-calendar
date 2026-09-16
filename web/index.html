@@ -3,7 +3,273 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Calendar</title>
+  <meta name="theme-color" content="#f7f7f2">
+  <meta name="referrer" content="no-referrer">
+  <meta name="description" content="Share a Google booking page and test finding a time together.">
+  <title>Calendar — Find a time together</title>
+  <style>
+    :root { color-scheme: light; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #222b28; background: #f7f7f2; font-synthesis: none; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 280px; }
+    a { color: #285c46; text-underline-offset: 4px; }
+    a:hover { color: #142f24; }
+    button, input { font: inherit; }
+    button, a, input { -webkit-tap-highlight-color: transparent; }
+    :focus-visible { outline: 3px solid #799e89; outline-offset: 4px; }
+    [hidden] { display: none !important; }
+    .shell { max-width: 1024px; margin: auto; padding: 0 32px; }
+    header { display: flex; align-items: center; justify-content: space-between; padding: 30px 0; border-bottom: 1px solid #dddfd6; }
+    .brand { display: inline-flex; align-items: center; gap: 10px; color: #222b28; font-weight: 650; font-size: 19px; text-decoration: none; letter-spacing: -.5px; }
+    .brand svg { width: 27px; height: 27px; }
+    .badge { font-size: 12px; padding: 6px 10px; border: 1px solid #dadfd3; border-radius: 99px; color: #5c655d; }
+    main { max-width: 590px; margin: 84px auto 72px; }
+    .eyebrow { color: #5d705e; font-size: 11px; font-weight: 700; letter-spacing: 1.7px; text-transform: uppercase; margin-bottom: 18px; }
+    h1 { font-family: Georgia, "Times New Roman", serif; font-weight: 400; font-size: clamp(36px, 5vw, 52px); letter-spacing: -1.8px; line-height: 1.1; margin: 0 0 20px; }
+    .intro { color: #626b64; font-size: 17px; line-height: 1.65; max-width: 490px; margin: 0 0 30px; }
+    .panel { background: #fff; border: 1px solid #dfe3d9; border-radius: 16px; padding: 28px; box-shadow: 0 6px 24px #28382705; }
+    .notice { color: #6a7068; font-size: 13px; line-height: 1.6; margin: 22px 0 0; }
+    .notice strong { color: #424b43; font-weight: 600; }
+    fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
+    label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 10px; }
+    input { width: 100%; min-width: 0; border: 1px solid #cbd2c6; border-radius: 8px; padding: 14px; background: #fff; color: #222b28; font-size: 15px; }
+    input::placeholder { color: #8a9288; }
+    input:focus { border-color: #285c46; }
+    button, .primary { display: inline-flex; align-items: center; justify-content: center; gap: 10px; border: 0; border-radius: 8px; padding: 14px 18px; background: #285c46; color: white; font-size: 14px; font-weight: 600; cursor: pointer; text-decoration: none; min-height: 46px; }
+    button:hover, .primary:hover { background: #1d4735; color: white; }
+    button:disabled { cursor: wait; opacity: .65; }
+    .submit { width: 100%; margin-top: 16px; }
+    .help { display: inline-block; font-size: 12px; margin-top: 16px; }
+    .status { margin-top: 20px; padding: 17px 18px; border-radius: 10px; background: #f2f5ee; font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
+    .status p { margin: 4px 0 0; }
+    .status h2 { font-size: 16px; margin: 0 0 5px; font-weight: 650; }
+    .status.error { background: #fbf0ec; color: #8b3b2a; }
+    .status.success { background: #edf5ec; color: #28563a; }
+    .loading { display: flex; align-items: center; gap: 10px; color: #536c55; }
+    .spinner { flex-shrink: 0; width: 17px; height: 17px; border: 2px solid #d1ddcb; border-top-color: #285c46; border-radius: 50%; animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .spinner { animation: none; border-color: #285c46; } }
+    .share { margin-top: 20px; }
+    .share input { font-size: 13px; background: #fafbf8; }
+    .actions { display: flex; align-items: center; gap: 20px; margin-top: 12px; font-size: 13px; flex-wrap: wrap; }
+    .secondary { background: #edf1e7; color: #285c46; padding: 10px 14px; }
+    .secondary:hover { background: #e2e9d9; color: #285c46; }
+    .copy-feedback { color: #626b64; min-height: 20px; font-size: 12px; margin-top: 8px; }
+    .meeting { padding-bottom: 22px; margin-bottom: 23px; border-bottom: 1px solid #e8ebe2; }
+    .meeting strong { display: block; font-size: 17px; margin-bottom: 7px; }
+    .meeting span { color: #626b64; font-size: 13px; }
+    details { margin-top: 18px; font-size: 12px; color: #687367; }
+    summary { cursor: pointer; }
+    code { display: block; margin-top: 10px; overflow-wrap: anywhere; font-size: 11px; }
+    .tutorial h1 { font-size: 40px; }
+    ol { margin: 0; padding-left: 21px; }
+    li { padding-left: 7px; margin-bottom: 18px; font-size: 15px; line-height: 1.65; }
+    li:last-child { margin-bottom: 0; }
+    footer { max-width: 590px; margin: 0 auto 30px; color: #939b90; font-size: 12px; display: flex; justify-content: space-between; gap: 20px; }
+    footer a { color: #747d70; }
+    noscript p { max-width: 590px; margin: 30px auto; }
+    @media (max-width: 600px) { .shell { padding: 0 20px; } header { padding: 22px 0; } main { margin: 48px auto; } .panel { padding: 22px; } .badge { font-size: 11px; } footer { line-height: 1.7; } }
+  </style>
 </head>
-<body></body>
+<body>
+<div class="shell">
+  <header>
+    <a class="brand" href="/" aria-label="Calendar home"><svg aria-hidden="true" viewBox="0 0 28 28" fill="none"><rect x="3" y="5" width="22" height="20" rx="5" stroke="currentColor" stroke-width="1.7"/><path d="M3 12h22M9 2v6M19 2v6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="m10 18 3 3 6-6" stroke="#285c46" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>Calendar</a>
+    <span class="badge">Test mode · no bookings</span>
+  </header>
+  <main id="app" aria-busy="false"></main>
+  <noscript><p>Enable JavaScript to create a link and run the calendar test.</p></noscript>
+  <footer><span>A little less back-and-forth.</span><a href="/help/google-booking-page">Get a Google booking link</a></footer>
+</div>
+<script type="module">
+const API = 'https://api.calendar.aithos.world';
+const WEBSITE = 'https://calendar.aithos.world';
+const DURATION = 30; // Preview only; actual host appointment duration is a later gate.
+const app = document.querySelector('#app');
+const validId = id => /^[a-zA-Z0-9_-]{1,64}$/.test(id);
+let active = false;
+let host;
+let traceId;
+
+const messages = {
+  invalid_booking_page_url: 'Paste a public Google booking-page link, such as calendar.app.google/…',
+  google_page_not_recognized: 'We could not recognize this Google booking page. Check that its link opens publicly, then try again.',
+  google_page_unavailable: 'Google is not responding right now. Please try again in a moment.',
+  storage_unavailable: 'The service is temporarily unavailable. Please try again.',
+  operation_incomplete_retry_same_url: 'This is taking longer than expected. Submit the same link again to continue.',
+  peer_not_found: 'The other calendar is not available yet. Please try again in a moment.',
+  peer_unavailable: 'The other calendar could not respond. Please try again.',
+  discovery_unavailable: 'We could not connect the two calendars. Please try again.',
+  timeout: 'The comparison took too long. Please try again.',
+};
+class UserError extends Error {}
+function loading(message) {
+  const status = document.querySelector('#status');
+  status.hidden = false;
+  status.className = 'status loading';
+  status.replaceChildren();
+  const spinner = document.createElement('span');
+  spinner.className = 'spinner'; spinner.setAttribute('aria-hidden', 'true');
+  status.append(spinner, document.createTextNode(message));
+}
+function outcome(title, text, type = 'error') {
+  const status = document.querySelector('#status');
+  status.hidden = false; status.className = 'status ' + type; status.replaceChildren();
+  const heading = document.createElement('h2'); heading.textContent = title;
+  const description = document.createElement('p'); description.textContent = text;
+  status.append(heading, description);
+  if (traceId) {
+    const details = document.createElement('details');
+    const summary = document.createElement('summary'); summary.textContent = 'Test details';
+    const code = document.createElement('code'); code.textContent = 'Trace ID: ' + traceId;
+    details.append(summary, code); status.append(details);
+  }
+}
+async function request(path, signal, payload, a2a = false) {
+  const response = await fetch(API + path, {
+    method: payload === undefined ? 'GET' : 'POST', credentials: 'omit', cache: 'no-store', signal,
+    headers: payload === undefined ? {} : {'Content-Type': 'application/json', ...(a2a ? {'A2A-Version': '1.0'} : {})},
+    body: payload === undefined ? undefined : JSON.stringify(payload),
+  });
+  if (response.status === 404) throw new UserError('This shared link does not exist or is not ready yet. Check the link or try again shortly.');
+  let value;
+  try { value = await response.json(); } catch (error) { if (error.name === 'AbortError') throw error; throw new UserError('The service returned an unexpected response. Please try again.'); }
+  if (!response.ok) {
+    if (response.status === 429) throw new UserError('Too many requests. Please wait a moment and try again.');
+    throw new UserError(messages[value.error] || 'We could not complete the test. Check your link and try again.');
+  }
+  return value;
+}
+function wait(ms, signal) {
+  return new Promise((resolve, reject) => {
+    const abort = () => { clearTimeout(timer); reject(new DOMException('Cancelled', 'AbortError')); };
+    const timer = setTimeout(() => { signal.removeEventListener('abort', abort); resolve(); }, ms);
+    if (signal.aborted) abort(); else signal.addEventListener('abort', abort, {once: true});
+  });
+}
+async function publishedAgent(url, signal) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const agent = await request('/agents', signal, {booking_page_url: url});
+    if (!validId(agent.id) || agent.identifier !== 'urn:aithos:calendar:agent:' + agent.id || agent.mock !== true) {
+      throw new UserError('The service returned an unexpected agent. Please try again.');
+    }
+    if (agent.publication_status === 'published') return agent;
+    if (agent.publication_status !== 'pending') throw new UserError('We could not prepare this link. Please try again.');
+    loading('Getting your link ready…');
+    if (attempt < 4) await wait(2000, signal);
+  }
+  throw new UserError('Your page is saved, but its link is still being prepared. Please try the same link again in a moment.');
+}
+async function run(action) {
+  if (active) return;
+  active = true; traceId = undefined;
+  const fieldset = document.querySelector('fieldset');
+  if (fieldset) fieldset.disabled = true;
+  app.setAttribute('aria-busy', 'true');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 45000);
+  try { await action(controller.signal); }
+  catch (error) {
+    outcome('We couldn’t complete the test', error instanceof UserError ? error.message :
+      error.name === 'AbortError' ? 'This is taking longer than expected. Try the same link again in a moment.' :
+      'We could not reach the service. Check your connection and try again.');
+  } finally {
+    clearTimeout(timer); active = false; app.setAttribute('aria-busy', 'false');
+    if (fieldset) fieldset.disabled = false;
+  }
+}
+const form = button => `<form id="booking-form"><fieldset><label for="booking-url">Your Google booking-page link</label><input id="booking-url" name="booking_page_url" type="url" placeholder="https://calendar.app.google/…" required maxlength="2048" autocomplete="url" spellcheck="false" aria-describedby="preview-note"><button class="submit" type="submit">${button}<span aria-hidden="true">→</span></button></fieldset></form><a class="help" href="/help/google-booking-page" target="_blank" rel="noopener">How do I get my booking-page link?</a><div id="status" class="status" role="status" aria-live="polite" aria-atomic="true" hidden></div>`;
+const note = '<p class="notice" id="preview-note"><strong>This is a test.</strong> Availability is simulated. No appointment will be booked and your Google calendar will not be changed.</p>';
+
+function home() {
+  document.title = 'Calendar — Find a time together';
+  app.innerHTML = `<div class="eyebrow">One link. A time together.</div><h1>Find a time<br>together.</h1><p class="intro">Paste your Google booking-page link.<br>Get a simple link to share with someone.</p><section class="panel" aria-label="Create your link">${form('Create link')}<div class="share" id="share" hidden><label for="share-url">Your link to share</label><input id="share-url" readonly><div class="actions"><button class="secondary" id="copy" type="button">Copy link</button><a id="open-link">Open link →</a></div><div id="copy-feedback" class="copy-feedback" role="status"></div></div></section>${note}`;
+  document.querySelector('#booking-form').addEventListener('submit', event => {
+    event.preventDefault();
+    const url = document.querySelector('#booking-url').value.trim();
+    run(async signal => {
+      document.querySelector('#share').hidden = true;
+      loading('Preparing your link…');
+      const agent = await publishedAgent(url, signal);
+      const expected = WEBSITE + '/book/' + agent.id;
+      if (agent.share_url !== expected) throw new UserError('The service returned an unexpected sharing link. Please try again.');
+      outcome('Your link is ready', 'Share it with someone to try finding a time together.', 'success');
+      document.querySelector('#share-url').value = expected;
+      document.querySelector('#open-link').href = expected;
+      document.querySelector('#share').hidden = false;
+      document.querySelector('#copy-feedback').textContent = '';
+    });
+  });
+  document.querySelector('#copy').addEventListener('click', async () => {
+    const input = document.querySelector('#share-url');
+    try { await navigator.clipboard.writeText(input.value); document.querySelector('#copy-feedback').textContent = 'Link copied.'; }
+    catch { input.focus(); input.select(); document.querySelector('#copy-feedback').textContent = 'Select and copy the link above.'; }
+  });
+}
+async function booking(id) {
+  document.title = 'Calendar — Try a shared time';
+  app.innerHTML = `<div class="eyebrow">A time for both of you</div><h1>Let’s find a<br>shared time.</h1><p class="intro">Add your Google booking-page link to try a match with this calendar.</p><section class="panel" aria-label="Find a shared test time"><div class="meeting"><strong>30-minute test meeting</strong><span>Simulated availability · no reservation</span></div>${form('Find a test time')}</section>${note}`;
+  document.querySelector('fieldset').disabled = true;
+  loading('Loading the shared calendar…');
+  app.setAttribute('aria-busy', 'true');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+  try {
+    const card = await request('/agents/' + encodeURIComponent(id) + '/agent-card.json', controller.signal);
+    const endpoint = card.supportedInterfaces?.find(i => i.protocolBinding === 'JSONRPC' && i.protocolVersion === '1.0' && i.tenant === id && i.url === API + '/a2a');
+    if (!endpoint) throw new UserError('This shared link is not supported by the current test.');
+    host = id;
+    document.querySelector('#status').hidden = true;
+    document.querySelector('fieldset').disabled = false;
+  } catch (error) {
+    outcome('This link is unavailable', error instanceof UserError ? error.message : 'We could not load this link. Please reload the page to try again.');
+  } finally { clearTimeout(timer); app.setAttribute('aria-busy', 'false'); }
+  document.querySelector('#booking-form').addEventListener('submit', event => {
+    event.preventDefault();
+    if (!host) return;
+    const url = document.querySelector('#booking-url').value.trim();
+    run(async signal => {
+      loading('Preparing your calendar…');
+      const peer = await publishedAgent(url, signal);
+      if (peer.id === host) throw new UserError('This is the same booking page as the shared link. Paste a different Google booking-page link.');
+      loading('Comparing test availability…');
+      traceId = crypto.randomUUID();
+      const reply = await request('/a2a', signal, {jsonrpc: '2.0', id: crypto.randomUUID(), method: 'SendMessage', params: {
+        tenant: host, metadata: {calendarTraceId: traceId}, message: {messageId: crypto.randomUUID(), role: 'ROLE_USER', parts: [{data: {operation: 'find_common_slot', peer: peer.identifier, duration_minutes: DURATION}}]},
+      }}, true);
+      if (reply.error) throw new UserError('The calendars could not complete this test. Please try again.');
+      const result = reply.result?.message?.parts?.find(p => p.data)?.data;
+      if (!result || result.mock !== true || result.reserved !== false || result.organizer !== 'urn:aithos:calendar:agent:' + host || result.peer !== peer.identifier || result.trace_id !== traceId) {
+        throw new UserError('We could not verify the test result. Please try again.');
+      }
+      if (result.status === 'error') throw new UserError(messages[result.code] || 'The calendars could not complete this test. Please try again.');
+      if (result.status === 'no_common_slot' && result.slot === null) {
+        outcome('No shared test time found', 'There is no matching 30-minute interval in the simulated availability. Nothing was booked.', '');
+        return;
+      }
+      const start = new Date(result.slot?.start), end = new Date(result.slot?.end);
+      if (result.status !== 'slot_found' || !Number.isFinite(start.getTime()) || end - start !== DURATION * 60000) {
+        throw new UserError('We could not verify the proposed time. Please try again.');
+      }
+      const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const date = new Intl.DateTimeFormat(undefined, {weekday:'long', day:'numeric', month:'long', year:'numeric'}).format(start);
+      const time = new Intl.DateTimeFormat(undefined, {hour:'2-digit', minute:'2-digit', hour12:false});
+      outcome('A shared test time was found', `${date}, ${time.format(start)}–${time.format(end)} (${zone}). These are simulated times; no appointment was booked.`, 'success');
+    });
+  });
+}
+function tutorial() {
+  document.title = 'Calendar — Get a Google booking link';
+  app.className = 'tutorial';
+  app.innerHTML = `<div class="eyebrow">A quick guide</div><h1>Get your Google<br>booking-page link.</h1><p class="intro">Use a public appointment booking page, rather than an event invitation or calendar feed.</p><section class="panel"><ol><li>On a computer, open <a href="https://calendar.google.com/" target="_blank" rel="noopener noreferrer">Google Calendar</a>. Choose <strong>Create → Appointment schedule</strong>.</li><li>Set the title, duration, availability and time zone. Under calendar availability, include the calendars that should block busy times.</li><li>Complete the booking-page settings and save. Under “Booking pages”, hover over your schedule and choose “Copy link”.</li><li>Paste that public link into Calendar. A short link beginning with <strong>calendar.app.google</strong> works too.</li></ol><p class="notice">Available features depend on your Google account. <a href="https://support.google.com/calendar/answer/10729749?hl=en" target="_blank" rel="noopener noreferrer">Google’s setup guide</a> · <a href="https://support.google.com/calendar/answer/10733297?hl=en" target="_blank" rel="noopener noreferrer">Sharing your booking page</a></p></section><p class="notice"><a href="/">← Back to Calendar</a></p>`;
+}
+const path = location.pathname.replace(/\/$/, '') || '/';
+if (path === '/' || path === '/index.html') home();
+else if (path === '/help/google-booking-page') tutorial();
+else {
+  const match = /^\/book\/([a-zA-Z0-9_-]{1,64})$/.exec(path);
+  if (match) booking(match[1]);
+  else { app.innerHTML = '<h1>This link isn’t available.</h1><p class="intro">Check the address, or create a new sharing link.</p><a class="primary" href="/">Back to Calendar</a>'; }
+}
+</script>
+</body>
 </html>

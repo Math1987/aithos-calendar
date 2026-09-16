@@ -9,7 +9,8 @@ One runtime hosts several logical agents. The public repository is
 
 Each gate ends with a manual acceptance check, deployed commit and known limits.
 Wait for owner acceptance before the next gate; do not provision future resources
-in advance. The current authorized scope is gate 4: public find-or-create by Google booking-page URL and signed Aithos publication.
+in advance. The current authorized scope includes the Gate 4 browser preview: reproduce public
+onboarding and the mocked A2A exchange with a minimal web interface.
 
 ## Gates
 
@@ -20,8 +21,9 @@ in advance. The current authorized scope is gate 4: public find-or-create by Goo
 | 2. A2A and catalog fixtures — deployed and verified | Official Rust A2A SDK; fixed Alice/Bob cards; URL catalog; deterministic responses | Start from catalog URL in CLI, fetch each card, call its tenant, obtain distinct Hello responses; reject unknown tenant |
 | 3. Agent-to-agent exchange — deployed and verified | Alice calls Bob through real A2A HTTP; behavior still mocked | One traced Alice → Bob exchange; correct recipient configuration, bounded call flow, no recursive loop |
 | 4. Dynamic identities and registry — deployed and verified | Create agent/card, publish through Aithos and include card URL in catalog | Create two identities, discover and call both; verify URL deduplication, immutable reuse and retry-safe publication; retire hardcoded production fixtures |
+| 4 bis. Browser preview | Home, shared test page, tutorial; spinner and mock success/error | Create/reuse two page agents in a browser, obtain the mock slot, reject identical/invalid links; see [browser test](browser-test.md) |
 | 5. Google calendar logic | Replaceable public-page HTTP reader and deterministic interval selection | Controlled calendars: differing appointment durations, busy event, no common interval; use host duration and verify the full interval |
-| 6. Booking and minimal UI | Anakin adapter, durable operation, agreed pages and spinner/outcome | One real booking; verify attendee identity, invitation, both calendars, retries and ambiguous provider outcomes |
+| 6. Booking | Anakin adapter, durable operation, connect the existing UI to real booking | One real booking; verify attendee identity, invitation, both calendars, retries and ambiguous provider outcomes |
 | 7. LLM | AWS Bedrock behind an explicit application boundary | Natural-language interaction drives the same tested operations; code enforces availability, identity and duplicate prevention |
 
 ## Gate details

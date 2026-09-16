@@ -2,9 +2,10 @@
 
 ## Scope
 
-The foundation serves health and a blank static website. The Alice/Bob gate
-extends the same Lambda with mock A2A and discovery; see the [CLI guide](a2a-cli-test.md)
-for current verification. No calendars, booking provider or database are used.
+The service exposes health, persistent public page agents, mock A2A collaboration,
+and a minimal browser test. DynamoDB stores signed identities; Aithos publishes
+the cards. Google availability and real booking remain unimplemented. See the
+[browser guide](browser-test.md) and [public onboarding](public-onboarding.md).
 
 - Repository: https://github.com/Math1987/aithos-calendar (public).
 - AWS: account `128066560720`, region `eu-west-3` (Paris).
@@ -95,7 +96,7 @@ curl --show-error -i https://api.calendar.aithos.world/not-found
 ```
 
 Expected: JSON HTTP 200 with `{"status":"ok","service":"calendar"}`;
-HTML HTTP 200 with a blank body in the browser; HTTP-to-HTTPS redirect for the
+HTML HTTP 200 with the browser test; HTTP-to-HTTPS redirect for the
 website; 404 on the unknown API path. The native execute-api endpoint is disabled.
 
 Inspect the workflow run, deployed commit and logs:
@@ -143,7 +144,7 @@ Persistent resources are two S3 buckets, IAM roles, certificates, log groups, a
 Lambda function, HTTP API and CloudFront distribution, plus records in an existing
 zone. Usage can incur storage, requests, execution, logs and transfer charges.
 There is no NAT, provisioned concurrency, database, container service, or new DNS
-zone. At this blank/health stage usage should be low; actual billing depends on
+zone. Usage depends on onboarding and A2A traffic; actual billing depends on
 traffic and account allowances. No fixed monthly price is promised.
 
 ### API Gateway authorization boundary

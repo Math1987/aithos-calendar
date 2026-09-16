@@ -50,8 +50,22 @@ resource "aws_cloudfront_distribution" "website" {
     cached_methods         = ["GET", "HEAD"]
     target_origin_id       = "website"
     viewer_protocol_policy = "redirect-to-https"
-    # AWS managed CachingDisabled policy; no invalidation step for the empty site.
+    # Serve the latest single-file application without an invalidation step.
     cache_policy_id = data.aws_cloudfront_cache_policy.disabled.id
+  }
+  # The private S3 origin returns 403 for missing keys. Serve the same application
+  # for /book/{id} and the tutorial; JavaScript handles unknown paths explicitly.
+  custom_error_response {
+    error_code            = 403
+    response_code         = 200
+    response_page_path    = "/index.html"
+    error_caching_min_ttl = 0
+  }
+  custom_error_response {
+    error_code            = 404
+    response_code         = 200
+    response_page_path    = "/index.html"
+    error_caching_min_ttl = 0
   }
   restrictions {
     geo_restriction { restriction_type = "none" }

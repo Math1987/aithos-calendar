@@ -1,7 +1,8 @@
 # Product design
 
 Status: product direction agreed; booking identity and full conflict checking
-remain open. Public agent onboarding is implemented; availability reading and booking are later gates.
+remain open. Public agent onboarding and a browser mock preview are implemented; availability
+reading and booking are later gates.
 
 ## Purpose
 
@@ -28,7 +29,7 @@ Route: `/`.
 Share URL: `/book/{id}`. Public onboarding derives a stable agent ID from the
 canonical Google booking-page URL. Repeated submissions return the same agent,
 card and link; one person may have several pages and therefore several agents.
-No user login is required. The booking web page itself is a later UI gate. Creating a link does not reserve a meeting
+No user login is required. Creating a link does not reserve a meeting
 or prove that the submitter owns the Google page.
 
 ### 2. Booking: let the visitor supply their availability
@@ -121,13 +122,23 @@ Do not introduce these fields or a shared mailbox during the foundation stage.
 Keep implementation details out of the user interface. Do not expose provider
 payloads, credentials, other calendar events, or internal exception messages.
 
-## What stage 1 actually ships
+## Current browser preview
+
+The three routes are now available as a mock test, ahead of calendar integration.
+The shared page says “30-minute test meeting” and offers “Find a test time”.
+It displays a simulated common interval in the visitor’s time zone, a no-match
+result, or an actionable error. A permanent test badge and outcome copy state
+that nothing is booked. Appointment metadata and availability are not read from
+Google yet. The final booking behavior specified above remains a later gate.
+See [browser test](browser-test.md).
+
+## Historical stage 1 scope
 
 - A healthy production API: `GET https://api.calendar.aithos.world/health`.
 - A blank HTML document at `https://calendar.aithos.world/`.
 - The infrastructure and deployment workflow required to deliver both.
 
-The three product pages above are specifications only. Stage 1 has no inputs,
+At stage 1, the three product pages were specifications only. Stage 1 had no inputs,
 calendar reads, Anakin account, real bookings, A2A runtime, or application database.
 
 ## References

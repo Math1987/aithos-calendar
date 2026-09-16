@@ -33,9 +33,9 @@ fields (including tenant, owner, name and availability) are rejected.
 - **503:** Google or storage unavailable; retry the same URL later.
 - **504:** operation deadline exceeded; it may have saved data. Repost the same URL.
 
-The returned `share_url` reserves the stable `/book/{id}` address. **The website is
-still blank and the booking UI is not implemented.** Test the API, cards and A2A
-with the terminal for now. All availability remains the fictitious January 15,
+The returned `share_url` opens the browser test at `/book/{id}`. See the
+[browser guide](browser-test.md) to reproduce this exchange without a terminal.
+All availability remains the fictitious January 15,
 2030, 09:30–10:00 UTC interval for new page agents, with `mock: true` and
 `reserved: false`. No Google availability or actual appointment is read or booked.
 

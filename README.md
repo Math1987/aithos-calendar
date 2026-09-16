@@ -11,7 +11,9 @@ dynamic AI Catalog references their registry URLs. Page agents and existing mock
 availability in both directions on September 16, 2026.
 Public onboarding accepts a Google booking-page URL and reuses its existing agent.
 See [public onboarding](docs/public-onboarding.md) for the current manual test.
-The static website remains blank.
+The [website](https://calendar.aithos.world) provides a minimal browser test: create
+a sharing link, paste a second booking page, and display the mock A2A result.
+No appointment is booked. See the [browser guide](docs/browser-test.md).
 Repository: https://github.com/Math1987/aithos-calendar (public).
 
 ## Documentation

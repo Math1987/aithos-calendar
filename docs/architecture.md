@@ -57,20 +57,28 @@ flowchart TD
 - Terraform-managed Lambda log group with 14-day retention. API access logs are
   deferred for this health-only stage because their delivery requires additional
   account-level CloudWatch permissions; see the stage-1 implementation adjustment.
-- No CORS yet: the blank website makes no API calls.
+- Browser preview extension: API Gateway CORS allows only
+  `https://calendar.aithos.world`, GET/POST/OPTIONS and Content-Type/A2A-Version.
+  No browser credentials are used; the API remains public.
 
 ### Website
 
 - One S3 bucket distinct from the Terraform state bucket.
 - Block public access; use the S3 REST origin and CloudFront Origin Access Control.
 - Bucket policy grants reads only to the project's CloudFront distribution.
-- Serve a minimal valid `index.html` with an empty body, page title, and no scripts,
-  forms, framework, analytics, or application assets.
+- Serve one `index.html` with inline CSS and JavaScript for the home, shared mock
+  test, and tutorial. No framework, package dependencies, analytics or build step.
 - Terraform uploads the object with `text/html; charset=utf-8` and content hash.
 - CloudFront default root object is `index.html`; redirect HTTP to HTTPS.
 - Disable caching for this initial document to avoid adding an invalidation step.
   Revisit cache policy when real assets exist.
-- No SPA routing fallback yet; no application routes exist.
+- CloudFront maps S3 403/404 responses to `/index.html` with HTTP 200 and zero
+  error cache TTL. This permits direct `/book/{id}` and tutorial navigation;
+  unknown paths show a friendly frontend message (still HTTP 200).
+- The browser fetches the host card from Calendar’s byte-identical local card
+  route, then sends A2A JSON-RPC to its declared endpoint/tenant. This avoids
+  requiring browser CORS on Aithos. Server-side peer discovery still fetches the
+  registry card and uses the official Rust SDK. See [browser test](browser-test.md).
 
 ### DNS and certificates
 
