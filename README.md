@@ -7,7 +7,8 @@ public Google booking-page link, and find a suitable appointment automatically.
 
 The Rust service is deployed with a URL catalog,
 Alice/Bob Agent Cards and a shared A2A 1.0 JSON-RPC endpoint with mock greetings and agent-to-agent slot matching.
-See the [collaboration guide](docs/agent-collaboration.md) for deployment status and commands.
+Alice → Bob and Bob → Alice were verified in production on September 16, 2026.
+See the [collaboration guide](docs/agent-collaboration.md) for commands and evidence.
 The static website remains blank.
 Repository: https://github.com/Math1987/aithos-calendar (public).
 

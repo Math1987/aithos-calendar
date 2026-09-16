@@ -1,6 +1,6 @@
 # Gate 3 — mock agent-to-agent scheduling
 
-Status: local tests and official CLI checks passed; production verification pending.
+Status: deployed and verified in production on September 16, 2026.
 
 ## Behavior
 
@@ -164,4 +164,25 @@ production or exposing public fault-injection controls.
 
 ## Verification record
 
-Local tests and official CLI passed. Terraform validation passed. Deployment pending.
+Verified on **September 16, 2026**:
+
+- Application commit: `5466988212535c50cbf8ddea7acf241c2424a0e8`.
+- [Production workflow](https://github.com/Math1987/aithos-calendar/actions/runs/35062089693): successful; 14 Rust tests passed, Linux x86-64 static binary built, health and A2A smoke checks passed.
+- Terraform: **0 added, 2 changed, 0 destroyed**. Only the Lambda and API integration changed; no new AWS resources or permissions.
+- Official CLI 0.2.1, with card URLs selected from the public catalog: Alice → Bob and Bob → Alice returned `slot_found` for 2030-01-15 09:30–10:00 UTC. A 60-minute request returned `no_common_slot`; an absent peer returned `error` / `peer_not_found`.
+- All coordination responses retained `mock: true` and `reserved: false`.
+- `/health` returned the expected JSON; the HTTPS website returned 200 with an empty body element.
+
+CloudWatch confirmed the real Alice → Bob exchange under trace
+`01a0a8d6-532a-7243-ab2a-526ca6bb2cef`:
+
+| Event | Tenant | Execution environment (log stream suffix) |
+| --- | --- | --- |
+| `operation_received: find_common_slot` | Alice | `fcfd93fa1e5e4590945896671fb4f98c` |
+| `peer_call` | Alice → Bob | `fcfd93fa1e5e4590945896671fb4f98c` |
+| `operation_received: get_availability` | Bob | `04235c033722447d9541dde4901ed9b3` |
+| `negotiation_completed: slot_found` | Alice | `fcfd93fa1e5e4590945896671fb4f98c` |
+
+The distinct execution environments confirm that Bob handled a separate Lambda
+invocation while Alice awaited his answer. Catalog and card GET requests also
+invoke the service; the table tracks only the two agent operations.
