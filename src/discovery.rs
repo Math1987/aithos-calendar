@@ -44,6 +44,7 @@ pub struct PeerDirectory {
     http: Client,
     catalog_url: Url,
     agent_origin: Url,
+    registry_origin: Option<Url>,
 }
 
 fn network_error(error: reqwest::Error, otherwise: PeerError) -> PeerError {
@@ -55,7 +56,11 @@ fn network_error(error: reqwest::Error, otherwise: PeerError) -> PeerError {
 }
 
 impl PeerDirectory {
-    pub fn new(public_url: &str, catalog_url: &str) -> Result<Self, lambda_http::Error> {
+    pub fn new_with_registry(
+        public_url: &str,
+        catalog_url: &str,
+        registry_origin: Option<&str>,
+    ) -> Result<Self, lambda_http::Error> {
         // Explicit provider avoids a platform-dependent TLS default in the SDK.
         let _ = a2a_client::rustls::crypto::aws_lc_rs::default_provider().install_default();
         let agent_origin = Url::parse(public_url)?;
@@ -79,14 +84,20 @@ impl PeerDirectory {
             http,
             catalog_url,
             agent_origin,
+            registry_origin: registry_origin.map(Url::parse).transpose()?,
         })
     }
 
-    fn card_url(&self, value: &str) -> Result<Url, PeerError> {
+    fn trusted_url(&self, value: &str, is_card: bool) -> Result<Url, PeerError> {
         let url = Url::parse(value).map_err(|_| PeerError::InvalidCard)?;
         // Only this deployment's mock agents are enabled in this gate. The
         // catalog may move to Aithos independently of the agent-serving origin.
-        if url.origin() != self.agent_origin.origin()
+        if !(url.origin() == self.agent_origin.origin()
+            || (is_card
+                && self
+                    .registry_origin
+                    .as_ref()
+                    .is_some_and(|r| url.origin() == r.origin())))
             || !url.username().is_empty()
             || url.password().is_some()
             || url.fragment().is_some()
@@ -149,7 +160,7 @@ impl PeerDirectory {
         if entry.entry_type != "application/a2a-agent-card+json" {
             return Err(PeerError::InvalidCard);
         }
-        let url = self.card_url(entry.url.as_deref().ok_or(PeerError::InvalidCard)?)?;
+        let url = self.trusted_url(entry.url.as_deref().ok_or(PeerError::InvalidCard)?, true)?;
         // The SDK resolver only appends a well-known path. Here the catalog
         // already supplies the full card URL, so fetch it directly as AgentCard.
         let mut card: AgentCard = self.fetch(url, PeerError::InvalidCard).await?;
@@ -159,7 +170,7 @@ impl PeerDirectory {
             return Err(PeerError::InvalidCard);
         }
         for interface in &card.supported_interfaces {
-            self.card_url(&interface.url)?;
+            self.trusted_url(&interface.url, false)?;
             if interface.tenant.as_deref().is_none_or(str::is_empty) {
                 return Err(PeerError::InvalidCard);
             }

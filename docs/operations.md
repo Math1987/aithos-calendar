@@ -163,3 +163,12 @@ configured in `infra/production/api.tf`; update that environment value through
 Terraform to use the future registry. Keep concurrent invocations available so a
 coordinator can await the recipient invocation. See [gate 3](agent-collaboration.md)
 for limits, the JSON response contract and trace-based verification.
+
+## Dynamic identity operations
+
+Gate 4 adds `calendar-production-agents` (DynamoDB on-demand, SSE, PITR and deletion
+protection) and three admin routes protected by AWS IAM. Bootstrap grants only
+the table-specific deployment and runtime permissions. Lambda reads project only
+record/publication attributes; recovery signing keys are never returned by the API.
+See [dynamic identities](dynamic-agents.md) for CLI commands and publication retries.
+An uncertain creation is retried with its original UUID; do not generate a new one.

@@ -16,7 +16,32 @@ async fn main() -> Result<(), Error> {
             base_url.trim_end_matches('/')
         )
     });
-    let app = calendar::app_with_catalog(&base_url, &catalog_url)?;
+    let app = if listen.is_some() {
+        calendar::app_with_catalog(&base_url, &catalog_url)?
+    } else {
+        let table = std::env::var("AGENTS_TABLE")?;
+        let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
+            .timeout_config(
+                aws_config::timeout::TimeoutConfig::builder()
+                    .operation_timeout(std::time::Duration::from_secs(2))
+                    .build(),
+            )
+            .retry_config(aws_config::retry::RetryConfig::standard().with_max_attempts(2))
+            .load()
+            .await;
+        let store = std::sync::Arc::new(calendar::storage::DynamoStore::new(
+            aws_sdk_dynamodb::Client::new(&config),
+            table,
+        ));
+        let registry = calendar::registry::Registry::new(&std::env::var("REGISTRY_ORIGIN")?)?;
+        calendar::app_with_store(
+            &base_url,
+            &catalog_url,
+            store,
+            Some(registry),
+            std::env::var("ADMIN_AWS_ACCOUNT_ID")?,
+        )?
+    };
     if let Some(address) = listen {
         let listener = tokio::net::TcpListener::bind(&address).await?;
         tracing::info!(event = "listening", %address, "Calendar listening");

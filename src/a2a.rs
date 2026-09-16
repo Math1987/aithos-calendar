@@ -5,7 +5,6 @@ use a2a_server::{RequestHandler, ServiceParams};
 use futures::stream::BoxStream;
 
 use crate::{
-    agents,
     discovery::{PeerDirectory, PeerError},
     scheduling::{Availability, Operation, first_common_slot},
 };
@@ -15,6 +14,7 @@ use std::time::Duration;
 /// Immediate messages only: no task store or work left running after a response.
 pub struct CalendarHandler {
     pub directory: PeerDirectory,
+    pub store: std::sync::Arc<dyn crate::storage::AgentStore>,
 }
 
 fn structured_reply(text: &str, data: Value) -> SendMessageResponse {
@@ -24,28 +24,38 @@ fn structured_reply(text: &str, data: Value) -> SendMessageResponse {
     ))
 }
 
-fn unsupported(tenant: Option<&str>) -> A2AError {
-    agents::find(tenant).err().unwrap_or_else(|| {
-        A2AError::unsupported_operation(
-            "This mock agent only supports immediate SendMessage responses",
-        )
-    })
-}
-
-async fn unsupported_call<T>(method: &'static str, tenant: Option<&str>) -> Result<T, A2AError> {
-    logging::server_call(method, tenant, &new_message_id(), async {
-        Err(unsupported(tenant))
-    })
-    .await
-}
-
 impl CalendarHandler {
+    async fn agent(&self, tenant: Option<&str>) -> Result<crate::agents::Agent, A2AError> {
+        let id = tenant
+            .filter(|id| crate::valid_tenant(id))
+            .ok_or_else(|| A2AError::invalid_params("Unknown or missing tenant"))?;
+        self.store
+            .get(id)
+            .await
+            .map_err(|_| A2AError::internal("Agent storage unavailable"))?
+            .filter(|r| r.published)
+            .map(|r| r.agent)
+            .ok_or_else(|| A2AError::invalid_params("Unknown or missing tenant"))
+    }
+    async fn unsupported_call<T>(
+        &self,
+        method: &'static str,
+        tenant: Option<&str>,
+    ) -> Result<T, A2AError> {
+        logging::server_call(method, tenant, &new_message_id(), async {
+            self.agent(tenant).await?;
+            Err(A2AError::unsupported_operation(
+                "This mock agent only supports immediate SendMessage responses",
+            ))
+        })
+        .await
+    }
     async fn handle_message(
         &self,
         req: SendMessageRequest,
         trace_id: &str,
     ) -> Result<SendMessageResponse, A2AError> {
-        let agent = agents::find(req.tenant.as_deref())?;
+        let agent = self.agent(req.tenant.as_deref()).await?;
         if req.message.role != Role::User
             || req.message.message_id.is_empty()
             || req.message.parts.is_empty()
@@ -61,7 +71,9 @@ impl CalendarHandler {
                 .as_ref()
                 .is_some_and(|c| c.task_push_notification_config.is_some())
         {
-            return Err(unsupported(req.tenant.as_deref()));
+            return Err(A2AError::unsupported_operation(
+                "Stateful interactions are not supported",
+            ));
         }
         if req
             .message
@@ -122,7 +134,7 @@ impl CalendarHandler {
                 }
                 let outcome = tokio::time::timeout(
                     Duration::from_secs(10),
-                    self.directory.availability(&peer, trace_id, agent.id),
+                    self.directory.availability(&peer, trace_id, &agent.id),
                 )
                 .await
                 .unwrap_or(Err(PeerError::Timeout));
@@ -197,7 +209,8 @@ impl RequestHandler for CalendarHandler {
         _params: &ServiceParams,
         req: SendMessageRequest,
     ) -> Result<BoxStream<'static, Result<StreamResponse, A2AError>>, A2AError> {
-        unsupported_call(methods::SEND_STREAMING_MESSAGE, req.tenant.as_deref()).await
+        self.unsupported_call(methods::SEND_STREAMING_MESSAGE, req.tenant.as_deref())
+            .await
     }
 
     async fn get_task(
@@ -205,7 +218,8 @@ impl RequestHandler for CalendarHandler {
         _params: &ServiceParams,
         req: GetTaskRequest,
     ) -> Result<Task, A2AError> {
-        unsupported_call(methods::GET_TASK, req.tenant.as_deref()).await
+        self.unsupported_call(methods::GET_TASK, req.tenant.as_deref())
+            .await
     }
 
     async fn list_tasks(
@@ -213,7 +227,8 @@ impl RequestHandler for CalendarHandler {
         _params: &ServiceParams,
         req: ListTasksRequest,
     ) -> Result<ListTasksResponse, A2AError> {
-        unsupported_call(methods::LIST_TASKS, req.tenant.as_deref()).await
+        self.unsupported_call(methods::LIST_TASKS, req.tenant.as_deref())
+            .await
     }
 
     async fn cancel_task(
@@ -221,7 +236,8 @@ impl RequestHandler for CalendarHandler {
         _params: &ServiceParams,
         req: CancelTaskRequest,
     ) -> Result<Task, A2AError> {
-        unsupported_call(methods::CANCEL_TASK, req.tenant.as_deref()).await
+        self.unsupported_call(methods::CANCEL_TASK, req.tenant.as_deref())
+            .await
     }
 
     async fn subscribe_to_task(
@@ -229,7 +245,8 @@ impl RequestHandler for CalendarHandler {
         _params: &ServiceParams,
         req: SubscribeToTaskRequest,
     ) -> Result<BoxStream<'static, Result<StreamResponse, A2AError>>, A2AError> {
-        unsupported_call(methods::SUBSCRIBE_TO_TASK, req.tenant.as_deref()).await
+        self.unsupported_call(methods::SUBSCRIBE_TO_TASK, req.tenant.as_deref())
+            .await
     }
 
     async fn create_push_config(
@@ -237,7 +254,8 @@ impl RequestHandler for CalendarHandler {
         _params: &ServiceParams,
         req: TaskPushNotificationConfig,
     ) -> Result<TaskPushNotificationConfig, A2AError> {
-        unsupported_call(methods::CREATE_PUSH_CONFIG, req.tenant.as_deref()).await
+        self.unsupported_call(methods::CREATE_PUSH_CONFIG, req.tenant.as_deref())
+            .await
     }
 
     async fn get_push_config(
@@ -245,7 +263,8 @@ impl RequestHandler for CalendarHandler {
         _params: &ServiceParams,
         req: GetTaskPushNotificationConfigRequest,
     ) -> Result<TaskPushNotificationConfig, A2AError> {
-        unsupported_call(methods::GET_PUSH_CONFIG, req.tenant.as_deref()).await
+        self.unsupported_call(methods::GET_PUSH_CONFIG, req.tenant.as_deref())
+            .await
     }
 
     async fn list_push_configs(
@@ -253,7 +272,8 @@ impl RequestHandler for CalendarHandler {
         _params: &ServiceParams,
         req: ListTaskPushNotificationConfigsRequest,
     ) -> Result<ListTaskPushNotificationConfigsResponse, A2AError> {
-        unsupported_call(methods::LIST_PUSH_CONFIGS, req.tenant.as_deref()).await
+        self.unsupported_call(methods::LIST_PUSH_CONFIGS, req.tenant.as_deref())
+            .await
     }
 
     async fn delete_push_config(
@@ -261,7 +281,8 @@ impl RequestHandler for CalendarHandler {
         _params: &ServiceParams,
         req: DeleteTaskPushNotificationConfigRequest,
     ) -> Result<(), A2AError> {
-        unsupported_call(methods::DELETE_PUSH_CONFIG, req.tenant.as_deref()).await
+        self.unsupported_call(methods::DELETE_PUSH_CONFIG, req.tenant.as_deref())
+            .await
     }
 
     async fn get_extended_agent_card(
@@ -269,6 +290,7 @@ impl RequestHandler for CalendarHandler {
         _params: &ServiceParams,
         req: GetExtendedAgentCardRequest,
     ) -> Result<AgentCard, A2AError> {
-        unsupported_call(methods::GET_EXTENDED_AGENT_CARD, req.tenant.as_deref()).await
+        self.unsupported_call(methods::GET_EXTENDED_AGENT_CARD, req.tenant.as_deref())
+            .await
     }
 }

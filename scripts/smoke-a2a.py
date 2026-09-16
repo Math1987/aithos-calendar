@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""Acceptance check for trusted mock catalog URLs; no credentials or booking writes."""
+"""Read-only production acceptance for a trusted dynamic Calendar catalog."""
+import datetime
 import json
 import sys
+import urllib.parse
 import urllib.request
 import uuid
 
@@ -26,51 +28,70 @@ def send(interface, tenant, operation=None):
     })
 
 
+def data(reply):
+    return next(part["data"] for part in reply["result"]["message"]["parts"] if "data" in part)
+
+
+def expected_slot(left, right, minutes):
+    parse = lambda value: datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    candidates = []
+    for a in left:
+        for b in right:
+            start = max(parse(a["start"]), parse(b["start"]))
+            end = start + datetime.timedelta(minutes=minutes)
+            if end <= min(parse(a["end"]), parse(b["end"])):
+                candidates.append((start, end))
+    return min(candidates) if candidates else None
+
+
 def main(catalog_url):
     catalog = fetch(catalog_url)
     assert catalog["specVersion"] == "1.0"
-    entries = {entry["identifier"]: entry for entry in catalog["entries"]}
-    interfaces = {}
-    for tenant, name in [("alice", "Alice"), ("bob", "Bob")]:
-        entry = entries[f"urn:aithos:calendar:agent:{tenant}"]
+    entries = catalog["entries"]
+    assert len({e["identifier"] for e in entries}) == len(entries)
+    origin = urllib.parse.urlsplit(catalog_url)
+    api = f"{origin.scheme}://{origin.netloc}/a2a"
+    agents = []
+    for entry in entries:
         assert entry["type"] == "application/a2a-agent-card+json"
         card = fetch(entry["url"])
-        assert card["name"] == name
         interface = next(i for i in card["supportedInterfaces"] if i["protocolBinding"] == "JSONRPC")
-        assert interface["tenant"] == tenant
-        interfaces[tenant] = interface
-        response = send(interface, interface["tenant"])
-        assert response["result"]["message"]["parts"][0]["text"] == f"Hello from {name}", response
-        print(f"PASS catalog → {name} card → A2A greeting")
-    for tenant in [None, "unknown"]:
+        assert interface["url"] == api
+        tenant = interface["tenant"]
+        assert entry["identifier"] == f"urn:aithos:calendar:agent:{tenant}"
         response = send(interface, tenant)
-        assert response["error"]["code"] == -32602, response
-        assert "result" not in response
+        assert response["result"]["message"]["parts"][0]["text"] == f"Hello from {card['name']}", response
+        availability = data(send(interface, tenant, {"operation": "get_availability"}))
+        assert availability["agent"] == entry["identifier"] and availability["mock"] is True
+        agents.append((entry, interface, availability))
+        print(f"PASS catalog → {card['name']} card → A2A greeting and availability")
+    for tenant in [None, "unknown"]:
+        response = send({"url": api}, tenant)
+        assert response["error"]["code"] == -32602 and "result" not in response, response
         print(f"PASS rejected tenant {tenant!r}")
-
-
-    for caller, peer, duration, expected in [
-        ("alice", "bob", 30, "slot_found"),
-        ("bob", "alice", 30, "slot_found"),
-        ("alice", "bob", 60, "no_common_slot"),
-        ("alice", "missing", 30, "error"),
-    ]:
-        reply = send(interfaces[caller], caller, {
-            "operation": "find_common_slot",
-            "peer": f"urn:aithos:calendar:agent:{peer}",
-            "duration_minutes": duration,
-        })
-        result = next(part["data"] for part in reply["result"]["message"]["parts"] if "data" in part)
-        assert result["status"] == expected, result
-        assert result["mock"] is True and result["reserved"] is False, result
-        uuid.UUID(result["trace_id"])
-        if expected == "slot_found":
-            assert result["slot"] == {"start": "2030-01-15T09:30:00Z", "end": "2030-01-15T10:00:00Z"}, result
-        elif expected == "no_common_slot":
-            assert result["slot"] is None, result
-        else:
-            assert result["code"] == "peer_not_found", result
-        print(f"PASS {caller} → {peer}: {expected}; trace_id={result['trace_id']}")
+    if len(agents) < 2:
+        print(f"PASS dynamic catalog ready ({len(agents)} agents); peer acceptance requires two published agents")
+        return
+    for caller, peer in [(agents[0], agents[1]), (agents[1], agents[0])]:
+        for duration in [30, 60]:
+            result = data(send(caller[1], caller[1]["tenant"], {
+                "operation": "find_common_slot", "peer": peer[0]["identifier"], "duration_minutes": duration,
+            }))
+            expected = expected_slot(caller[2]["slots"], peer[2]["slots"], duration)
+            assert result["status"] == ("slot_found" if expected else "no_common_slot"), result
+            assert result["mock"] is True and result["reserved"] is False, result
+            uuid.UUID(result["trace_id"])
+            if expected:
+                assert result["slot"] == {key: date.isoformat().replace("+00:00", "Z") for key, date in zip(["start", "end"], expected)}, result
+            else:
+                assert result["slot"] is None, result
+            print(f"PASS {caller[0]['displayName']} → {peer[0]['displayName']}: {result['status']}; trace_id={result['trace_id']}")
+    caller = agents[0]
+    result = data(send(caller[1], caller[1]["tenant"], {
+        "operation": "find_common_slot", "peer": "urn:aithos:calendar:agent:missing", "duration_minutes": 30,
+    }))
+    assert result["status"] == "error" and result["code"] == "peer_not_found", result
+    print("PASS absent peer rejected")
 
 
 if __name__ == "__main__":

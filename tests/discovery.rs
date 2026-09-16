@@ -54,7 +54,7 @@ async fn catalog_to_card_to_message_uses_recipient_tenant() {
         assert_eq!(interface.url, "https://calendar.test/a2a");
         assert_eq!(interface.protocol_binding, "JSONRPC");
         assert_eq!(interface.protocol_version, "1.0");
-        assert_eq!(card.capabilities.streaming, Some(false));
+        assert_eq!(card.capabilities.streaming, None);
         let (status, reply) = request("/a2a", Some(message(json!(interface.tenant)))).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(reply["id"], "test-1");
@@ -69,7 +69,14 @@ async fn catalog_to_card_to_message_uses_recipient_tenant() {
 
 #[tokio::test]
 async fn missing_unknown_and_case_mismatched_tenants_never_default() {
-    for tenant in [Value::Null, json!(""), json!("unknown"), json!("Alice")] {
+    for tenant in [
+        Value::Null,
+        json!(""),
+        json!("unknown"),
+        json!("Alice"),
+        json!("a".repeat(2049)),
+        json!("bad/tenant"),
+    ] {
         let (_, reply) = request("/a2a", Some(message(tenant))).await;
         assert_eq!(reply["error"]["code"], -32602, "{reply}");
         assert!(reply.get("result").is_none());

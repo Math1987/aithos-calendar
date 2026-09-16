@@ -34,6 +34,7 @@ pub(crate) async fn server_call<T>(
     trace_id: &str,
     call: impl Future<Output = Result<T, A2AError>>,
 ) -> Result<T, A2AError> {
+    let tenant = tenant.filter(|id| crate::valid_tenant(id));
     let span = tracing::info_span!("a2a_request", tenant, trace_id);
     async {
         let interceptor = LoggingInterceptor;

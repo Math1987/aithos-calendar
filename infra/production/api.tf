@@ -23,8 +23,11 @@ resource "aws_lambda_function" "health" {
   depends_on       = [aws_cloudwatch_log_group.lambda]
   environment {
     variables = {
-      CALENDAR_PUBLIC_URL = "https://${local.api_domain}"
-      CATALOG_URL         = "https://${local.api_domain}/.well-known/ai-catalog.json"
+      CALENDAR_PUBLIC_URL  = "https://${local.api_domain}"
+      CATALOG_URL          = "https://${local.api_domain}/.well-known/ai-catalog.json"
+      AGENTS_TABLE         = aws_dynamodb_table.agents.name
+      REGISTRY_ORIGIN      = "https://registry.aithos.world"
+      ADMIN_AWS_ACCOUNT_ID = "128066560720"
     }
   }
 }

@@ -14,6 +14,7 @@ Repository: https://github.com/Math1987/aithos-calendar (public).
 
 ## Documentation
 
+- [Dynamic identities and Aithos](docs/dynamic-agents.md)
 - [Application and SDK logs](docs/logging.md)
 - [Agent-to-agent collaboration](docs/agent-collaboration.md)
 - [Alice/Bob CLI test](docs/a2a-cli-test.md)
@@ -39,4 +40,4 @@ Terraform state, and generated artifacts out of Git.
 | Primary region | `eu-west-3` (profile configuration) |
 | Environment | Production only |
 
-Calendar reading, booking, registry publication and LLM integration have not started.
+Calendar reading, booking and LLM integration have not started. See gate 4 for registry publication status.

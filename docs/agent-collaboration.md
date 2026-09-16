@@ -1,6 +1,6 @@
 # Gate 3 — mock agent-to-agent scheduling
 
-Status: deployed and verified in production on September 16, 2026.
+Status: gate 3 was verified on September 16, 2026. Gate 4 replaces production Alice/Bob fixtures with [dynamic identities](dynamic-agents.md); commands below remain valid for local fixtures.
 
 ## Behavior
 
@@ -86,12 +86,13 @@ is involved. Neither the tenant nor trace ID authenticates the caller.
 
 ## Manual CLI acceptance
 
-The workstation has the official CLI 0.2.1 at `.build/tools/a2acli`:
+The workstation has the official CLI 0.2.1 at `.build/tools/a2acli`. Start
+`CALENDAR_LISTEN=127.0.0.1:3187 cargo run --locked` in another terminal first:
 
 ```sh
 cd "/Volumes/Math17/aithos/R&D/calendar"
 export PATH="$PWD/.build/tools:$PATH"
-export CATALOG_URL="https://api.calendar.aithos.world/.well-known/ai-catalog.json"
+export CATALOG_URL="http://127.0.0.1:3187/.well-known/ai-catalog.json"
 ALICE_CARD=$(curl -fsS "$CATALOG_URL" | jq -er '.entries[] | select(.identifier == "urn:aithos:calendar:agent:alice") | .url')
 BOB_CARD=$(curl -fsS "$CATALOG_URL" | jq -er '.entries[] | select(.identifier == "urn:aithos:calendar:agent:bob") | .url')
 ```

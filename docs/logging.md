@@ -11,6 +11,7 @@ Each line is one JSON object with `timestamp`, `level` and `target`.
 | `target` | Source | Typical contents |
 | --- | --- | --- |
 | `calendar::a2a` | Calendar application | `operation_received`, `negotiation_completed`, outcome status |
+| `calendar::identities` / `calendar::registry` / `calendar::storage` | Calendar identity lifecycle | Creation, publication and provider failures |
 | `calendar::discovery` | Calendar application | `peer_call`, caller, peer and recipient tenant |
 | `a2a_client::middleware` | A2A SDK client | `A2A client request`, `A2A client response`, `A2A client error` |
 | `a2a_server::middleware` | A2A SDK server | `A2A server request`, `A2A server response`, `A2A server error` |
@@ -102,7 +103,7 @@ For **SDK events only**, replace the filter argument with:
 For **application events only**:
 
 ```sh
---filter-pattern '{ $.target = "calendar::a2a" || $.target = "calendar::discovery" }'
+--filter-pattern '{ $.target = "calendar::a2a" || $.target = "calendar::discovery" || $.target = "calendar::identities" || $.target = "calendar::registry" || $.target = "calendar::storage" }'
 ```
 
 For **one exchange**, replace it with the returned trace ID in double quotes:

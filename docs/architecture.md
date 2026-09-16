@@ -229,3 +229,11 @@ immediate `find_common_slot` operation that discovers and calls a peer through
 the official Rust A2A client. Matching remains deterministic on fixed UTC fixtures.
 The nested invocation performs only `get_availability`. No task persistence,
 background worker or external calendar integration is introduced.
+
+## Gate 4: persistent identities
+
+The existing Lambda now supports DynamoDB-backed agents and AWS IAM protected
+administration. Aithos hosts signed card bytes; Calendar projects confirmed
+publications into its AI Catalog and keeps serving identical card bytes locally.
+See [dynamic identities](dynamic-agents.md) for the ownership model, key custody,
+idempotency, publication recovery, scoped infrastructure and current limits.
