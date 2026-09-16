@@ -74,3 +74,24 @@ unknown agents, and the 390-pixel mobile layout.
 
 CI checks the inline JavaScript syntax, retains the Rust/A2A checks, and runs
 `scripts/smoke-web.py` after deployment to verify deep links and CORS.
+
+## Production verification — September 16, 2026
+
+- Deployed application commit: `3a4e908923118ff233fc52b95f8b4dbd47d2d73e`.
+- [GitHub Actions run](https://github.com/Math1987/aithos-calendar/actions/runs/35079406765): successful; 21 Rust tests passed (one pre-existing ignored test),
+  JavaScript syntax, existing A2A smoke checks, web deep links and CORS passed.
+- Terraform: 0 added, 3 changed, 0 destroyed (HTML object, CloudFront routing,
+  API Gateway CORS). No Rust behavior, IAM permissions or stored agents changed.
+- Live browser: reused the two existing page agents, opened the returned shared
+  link, and received a mock match displayed as January 15, 2030, 10:30–11:00
+  Europe/Paris. Trace: `f89c5ef0-4f76-41f8-a0ba-caa45831f2c6`.
+- Production invalid URL and same-page submissions both displayed the intended
+  error and re-enabled the form. No browser console errors during the happy path.
+- Local fixture checks also verified copied clipboard content, pending publication
+  retries, no-match, peer failure and malformed-result rejection; the tutorial
+  and mobile layout were inspected.
+- CloudWatch was not re-read for this trace because the local AWS session had
+  expired. GitHub OIDC deployment was unaffected. The trace is available in the
+  browser’s Test details for later lookup.
+
+Availability remains mocked and no reservation was made. Gate 5 has not started.
