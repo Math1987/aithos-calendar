@@ -150,3 +150,13 @@ was recorded after first creation so read permissions do not depend on an API-na
 condition that AWS exposes only for UpdateApi/DeleteApi. A deliberate API
 replacement requires reviewing and updating this exact ARN in bootstrap. Routine
 route, integration, stage and function updates do not require that change.
+
+## Mock collaboration gate
+
+The shared Lambda now makes outbound HTTPS calls for catalog, card and A2A
+availability discovery. Lambda timeout is 15 seconds; HTTP API integration timeout
+is 20 seconds. No IAM expansion or new resource is required. `CATALOG_URL` is
+configured in `infra/production/api.tf`; update that environment value through
+Terraform to use the future registry. Keep concurrent invocations available so a
+coordinator can await the recipient invocation. See [gate 3](agent-collaboration.md)
+for limits, the JSON response contract and trace-based verification.

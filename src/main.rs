@@ -9,7 +9,13 @@ async fn main() -> Result<(), Error> {
             .map(|address| format!("http://{address}"))
             .ok_or(error)
     })?;
-    let app = calendar::app(&base_url);
+    let catalog_url = std::env::var("CATALOG_URL").unwrap_or_else(|_| {
+        format!(
+            "{}/.well-known/ai-catalog.json",
+            base_url.trim_end_matches('/')
+        )
+    });
+    let app = calendar::app_with_catalog(&base_url, &catalog_url)?;
     if let Some(address) = listen {
         let listener = tokio::net::TcpListener::bind(&address).await?;
         eprintln!("Calendar listening on {address}");

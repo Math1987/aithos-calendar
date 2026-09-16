@@ -26,11 +26,34 @@ pub fn find(tenant: Option<&str>) -> Result<&'static Agent, A2AError> {
 }
 
 impl Agent {
+    pub fn identifier(&self) -> String {
+        format!("urn:aithos:calendar:agent:{}", self.id)
+    }
+
+    pub fn availability(&self) -> Vec<crate::scheduling::Slot> {
+        let ranges = match self.id {
+            "alice" => [("09:00", "10:00"), ("14:00", "15:00")],
+            "bob" => [("09:30", "10:30"), ("15:00", "16:00")],
+            _ => unreachable!("known fixture agent"),
+        };
+        ranges
+            .into_iter()
+            .map(|(start, end)| crate::scheduling::Slot {
+                start: format!("2030-01-15T{start}:00Z")
+                    .parse()
+                    .expect("fixture timestamp"),
+                end: format!("2030-01-15T{end}:00Z")
+                    .parse()
+                    .expect("fixture timestamp"),
+            })
+            .collect()
+    }
+
     pub fn card(&self, base_url: &str) -> AgentCard {
         serde_json::from_value(json!({
             "name": self.name,
-            "description": format!("{}'s Calendar test agent. Returns a greeting; does not book appointments.", self.name),
-            "version": "0.1.0",
+            "description": format!("{}'s Calendar test agent. Shares mock availability and finds common slots; does not book appointments.", self.name),
+            "version": "0.2.0",
             "supportedInterfaces": [{
                 "url": format!("{base_url}/a2a"),
                 "protocolBinding": "JSONRPC",
@@ -38,12 +61,20 @@ impl Agent {
                 "tenant": self.id
             }],
             "capabilities": {"streaming": false, "pushNotifications": false, "extendedAgentCard": false},
-            "defaultInputModes": ["text/plain"],
-            "defaultOutputModes": ["text/plain"],
+            "defaultInputModes": ["text/plain", "application/json"],
+            "defaultOutputModes": ["text/plain", "application/json"],
             "skills": [{
                 "id": "greeting", "name": "Mock greeting",
                 "description": "Returns a deterministic greeting from the selected agent.",
                 "tags": ["mock", "greeting"], "examples": ["Hello"]
+            }, {
+                "id": "get_availability", "name": "Mock availability",
+                "description": "Returns fixed UTC availability for January 15, 2030.",
+                "tags": ["mock", "availability"], "inputModes": ["application/json"]
+            }, {
+                "id": "find_common_slot", "name": "Find a mock common slot",
+                "description": "Discovers a peer in the configured catalog and asks it for availability over A2A.",
+                "tags": ["mock", "scheduling"], "inputModes": ["application/json"]
             }]
         })).expect("static agent fixture must match SDK schema")
     }

@@ -1,7 +1,8 @@
 # Alice/Bob A2A acceptance gate
 
 Status: deployed and verified locally and in production on 2026-09-16.
-This is roadmap gate 2, following the completed Rust foundation.
+This is the historical gate-2 acceptance record, following the Rust foundation.
+For the subsequent Alice → Bob exchange, see [gate 3](agent-collaboration.md).
 
 ## What is real and what is mocked
 

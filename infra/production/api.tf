@@ -17,12 +17,15 @@ resource "aws_lambda_function" "health" {
   runtime          = "provided.al2023"
   architectures    = ["x86_64"]
   memory_size      = 128
-  timeout          = 5
+  timeout          = 15
   filename         = data.archive_file.health.output_path
   source_code_hash = data.archive_file.health.output_base64sha256
   depends_on       = [aws_cloudwatch_log_group.lambda]
   environment {
-    variables = { CALENDAR_PUBLIC_URL = "https://${local.api_domain}" }
+    variables = {
+      CALENDAR_PUBLIC_URL = "https://${local.api_domain}"
+      CATALOG_URL         = "https://${local.api_domain}/.well-known/ai-catalog.json"
+    }
   }
 }
 
@@ -36,7 +39,7 @@ resource "aws_apigatewayv2_integration" "health" {
   integration_type       = "AWS_PROXY"
   integration_uri        = aws_lambda_function.health.invoke_arn
   payload_format_version = "2.0"
-  timeout_milliseconds   = 6000
+  timeout_milliseconds   = 20000
 }
 resource "aws_apigatewayv2_route" "health" {
   api_id    = aws_apigatewayv2_api.api.id

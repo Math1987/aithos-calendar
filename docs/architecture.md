@@ -220,3 +220,12 @@ Keep ZIP packaging while the binary fits Lambda constraints.
 - [Terraform S3 state and locking](https://developer.hashicorp.com/terraform/language/backend/s3)
 - [GitHub OIDC with AWS](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-aws)
 - [Anakin appointments](https://anakin.io/catalog/google_appointments)
+
+## Gate 3: outbound A2A collaboration
+
+See [agent collaboration](agent-collaboration.md) for the current configuration,
+wire contract, time budgets and acceptance. The same function now supports an
+immediate `find_common_slot` operation that discovers and calls a peer through
+the official Rust A2A client. Matching remains deterministic on fixed UTC fixtures.
+The nested invocation performs only `get_availability`. No task persistence,
+background worker or external calendar integration is introduced.

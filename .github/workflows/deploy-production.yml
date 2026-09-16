@@ -37,7 +37,7 @@ jobs:
           sudo apt-get install --no-install-recommends -y musl-tools
           cargo fmt --check
           cargo test --locked
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc cargo build --release --locked --target x86_64-unknown-linux-musl
+          CC_x86_64_unknown_linux_musl=musl-gcc CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc cargo build --release --locked --target x86_64-unknown-linux-musl
           mkdir -p .build
           install -m 0755 target/x86_64-unknown-linux-musl/release/calendar .build/bootstrap
           file .build/bootstrap
@@ -65,7 +65,7 @@ jobs:
           curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 2 \
             --max-time 15 "$(terraform output -raw health_url)" > health-response.json
           python3 -c 'import json; assert json.load(open("health-response.json")) == {"status": "ok", "service": "calendar"}'
-      - name: Verify catalog and A2A agents
+      - name: Verify discovery and A2A collaboration
         working-directory: .
         run: python3 scripts/smoke-a2a.py https://api.calendar.aithos.world/.well-known/ai-catalog.json
       - name: Deployment summary
