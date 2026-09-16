@@ -1,6 +1,6 @@
 # Application and A2A SDK logs
 
-Status: implemented and tested locally; production verification pending.
+Status: deployed and verified in production on September 16, 2026.
 
 ## Format and sources
 
@@ -128,4 +128,11 @@ sources, matching trace IDs, correct caller/recipient tenants, a server warning
 for an unknown tenant, and that sentinel body/header values are absent. The
 existing 14 tests remain; `cargo test --locked` now runs 15 tests.
 
-Production verification pending.
+Production acceptance on **September 16, 2026**:
+
+- Application commit: `85fd8745ad9ab633bcee2530d34bf0d53c7a399b`.
+- [GitHub Actions run](https://github.com/Math1987/aithos-calendar/actions/runs/35066357537): all 15 tests passed, Linux binary built, deployment and production A2A smoke checks passed.
+- Terraform: 0 resources added, 1 changed (Lambda), 0 destroyed.
+- Official CLI selected Alice's card from the catalog and received `slot_found`, with `reserved: false`.
+- Trace `01a0a908-b961-759f-a485-4cb39fb1ad24` appeared in two Lambda log streams, with 10 correlated events: 4 Calendar events, 2 native SDK client events and 4 native SDK server events.
+- Both documented CloudWatch source filters were executed successfully: SDK returned the exchange's 6 SDK events; Calendar returned its 4 application events.
