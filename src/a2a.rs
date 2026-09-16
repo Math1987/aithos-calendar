@@ -1,3 +1,5 @@
+use crate::logging;
+use a2a::jsonrpc::methods;
 use a2a::*;
 use a2a_server::{RequestHandler, ServiceParams};
 use futures::stream::BoxStream;
@@ -30,12 +32,18 @@ fn unsupported(tenant: Option<&str>) -> A2AError {
     })
 }
 
-#[async_trait::async_trait]
-impl RequestHandler for CalendarHandler {
-    async fn send_message(
+async fn unsupported_call<T>(method: &'static str, tenant: Option<&str>) -> Result<T, A2AError> {
+    logging::server_call(method, tenant, &new_message_id(), async {
+        Err(unsupported(tenant))
+    })
+    .await
+}
+
+impl CalendarHandler {
+    async fn handle_message(
         &self,
-        _params: &ServiceParams,
         req: SendMessageRequest,
+        trace_id: &str,
     ) -> Result<SendMessageResponse, A2AError> {
         let agent = agents::find(req.tenant.as_deref())?;
         if req.message.role != Role::User
@@ -80,23 +88,11 @@ impl RequestHandler for CalendarHandler {
                 "Expected get_availability or find_common_slot with peer and duration_minutes",
             )
         })?;
-        let trace_id = req
-            .metadata
-            .as_ref()
-            .and_then(|m| m.get("calendarTraceId"))
-            .and_then(Value::as_str)
-            .and_then(|s| uuid::Uuid::parse_str(s).ok())
-            .map(|id| id.to_string())
-            .unwrap_or_else(new_message_id);
         let operation_name = match &operation {
             Operation::GetAvailability => "get_availability",
             Operation::FindCommonSlot { .. } => "find_common_slot",
         };
-        eprintln!(
-            "{}",
-            json!({"event":"operation_received", "tenant":agent.id,
-            "operation":operation_name, "trace_id":trace_id})
-        );
+        tracing::info!(event = "operation_received", operation = operation_name);
         match operation {
             Operation::GetAvailability => {
                 let availability = Availability {
@@ -104,7 +100,7 @@ impl RequestHandler for CalendarHandler {
                     agent: agent.identifier(),
                     slots: agent.availability(),
                     mock: true,
-                    trace_id,
+                    trace_id: trace_id.to_owned(),
                 };
                 Ok(structured_reply(
                     "Mock availability; no calendar was accessed",
@@ -126,7 +122,7 @@ impl RequestHandler for CalendarHandler {
                 }
                 let outcome = tokio::time::timeout(
                     Duration::from_secs(10),
-                    self.directory.availability(&peer, &trace_id, agent.id),
+                    self.directory.availability(&peer, trace_id, agent.id),
                 )
                 .await
                 .unwrap_or(Err(PeerError::Timeout));
@@ -160,14 +156,40 @@ impl RequestHandler for CalendarHandler {
                         "reserved":false, "trace_id":trace_id}),
                     ),
                 };
-                eprintln!(
-                    "{}",
-                    json!({"event":"negotiation_completed", "tenant":agent.id,
-                    "trace_id":trace_id, "status":data["status"], "code":data.get("code")})
+                tracing::info!(
+                    event = "negotiation_completed",
+                    status = data["status"].as_str(),
+                    code = data.get("code").and_then(serde_json::Value::as_str),
                 );
                 Ok(structured_reply(text, data))
             }
         }
+    }
+}
+
+#[async_trait::async_trait]
+impl RequestHandler for CalendarHandler {
+    async fn send_message(
+        &self,
+        _params: &ServiceParams,
+        req: SendMessageRequest,
+    ) -> Result<SendMessageResponse, A2AError> {
+        let trace_id = req
+            .metadata
+            .as_ref()
+            .and_then(|m| m.get("calendarTraceId"))
+            .and_then(Value::as_str)
+            .and_then(|s| uuid::Uuid::parse_str(s).ok())
+            .map(|id| id.to_string())
+            .unwrap_or_else(new_message_id);
+        let tenant = req.tenant.clone();
+        logging::server_call(
+            methods::SEND_MESSAGE,
+            tenant.as_deref(),
+            &trace_id,
+            self.handle_message(req, &trace_id),
+        )
+        .await
     }
 
     async fn send_streaming_message(
@@ -175,7 +197,7 @@ impl RequestHandler for CalendarHandler {
         _params: &ServiceParams,
         req: SendMessageRequest,
     ) -> Result<BoxStream<'static, Result<StreamResponse, A2AError>>, A2AError> {
-        Err(unsupported(req.tenant.as_deref()))
+        unsupported_call(methods::SEND_STREAMING_MESSAGE, req.tenant.as_deref()).await
     }
 
     async fn get_task(
@@ -183,7 +205,7 @@ impl RequestHandler for CalendarHandler {
         _params: &ServiceParams,
         req: GetTaskRequest,
     ) -> Result<Task, A2AError> {
-        Err(unsupported(req.tenant.as_deref()))
+        unsupported_call(methods::GET_TASK, req.tenant.as_deref()).await
     }
 
     async fn list_tasks(
@@ -191,7 +213,7 @@ impl RequestHandler for CalendarHandler {
         _params: &ServiceParams,
         req: ListTasksRequest,
     ) -> Result<ListTasksResponse, A2AError> {
-        Err(unsupported(req.tenant.as_deref()))
+        unsupported_call(methods::LIST_TASKS, req.tenant.as_deref()).await
     }
 
     async fn cancel_task(
@@ -199,7 +221,7 @@ impl RequestHandler for CalendarHandler {
         _params: &ServiceParams,
         req: CancelTaskRequest,
     ) -> Result<Task, A2AError> {
-        Err(unsupported(req.tenant.as_deref()))
+        unsupported_call(methods::CANCEL_TASK, req.tenant.as_deref()).await
     }
 
     async fn subscribe_to_task(
@@ -207,7 +229,7 @@ impl RequestHandler for CalendarHandler {
         _params: &ServiceParams,
         req: SubscribeToTaskRequest,
     ) -> Result<BoxStream<'static, Result<StreamResponse, A2AError>>, A2AError> {
-        Err(unsupported(req.tenant.as_deref()))
+        unsupported_call(methods::SUBSCRIBE_TO_TASK, req.tenant.as_deref()).await
     }
 
     async fn create_push_config(
@@ -215,7 +237,7 @@ impl RequestHandler for CalendarHandler {
         _params: &ServiceParams,
         req: TaskPushNotificationConfig,
     ) -> Result<TaskPushNotificationConfig, A2AError> {
-        Err(unsupported(req.tenant.as_deref()))
+        unsupported_call(methods::CREATE_PUSH_CONFIG, req.tenant.as_deref()).await
     }
 
     async fn get_push_config(
@@ -223,7 +245,7 @@ impl RequestHandler for CalendarHandler {
         _params: &ServiceParams,
         req: GetTaskPushNotificationConfigRequest,
     ) -> Result<TaskPushNotificationConfig, A2AError> {
-        Err(unsupported(req.tenant.as_deref()))
+        unsupported_call(methods::GET_PUSH_CONFIG, req.tenant.as_deref()).await
     }
 
     async fn list_push_configs(
@@ -231,7 +253,7 @@ impl RequestHandler for CalendarHandler {
         _params: &ServiceParams,
         req: ListTaskPushNotificationConfigsRequest,
     ) -> Result<ListTaskPushNotificationConfigsResponse, A2AError> {
-        Err(unsupported(req.tenant.as_deref()))
+        unsupported_call(methods::LIST_PUSH_CONFIGS, req.tenant.as_deref()).await
     }
 
     async fn delete_push_config(
@@ -239,7 +261,7 @@ impl RequestHandler for CalendarHandler {
         _params: &ServiceParams,
         req: DeleteTaskPushNotificationConfigRequest,
     ) -> Result<(), A2AError> {
-        Err(unsupported(req.tenant.as_deref()))
+        unsupported_call(methods::DELETE_PUSH_CONFIG, req.tenant.as_deref()).await
     }
 
     async fn get_extended_agent_card(
@@ -247,6 +269,6 @@ impl RequestHandler for CalendarHandler {
         _params: &ServiceParams,
         req: GetExtendedAgentCardRequest,
     ) -> Result<AgentCard, A2AError> {
-        Err(unsupported(req.tenant.as_deref()))
+        unsupported_call(methods::GET_EXTENDED_AGENT_CARD, req.tenant.as_deref()).await
     }
 }

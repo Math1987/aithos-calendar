@@ -166,6 +166,7 @@ impl PeerDirectory {
         }
         let factory = A2AClientFactory::builder()
             .no_defaults()
+            .with_interceptor(Arc::new(a2a_client::middleware::LoggingInterceptor))
             .register(Arc::new(JsonRpcTransportFactory::new(Some(
                 self.http.clone(),
             ))))
@@ -174,10 +175,11 @@ impl PeerDirectory {
             .create_from_card_with_interface(&card)
             .await
             .map_err(|_| PeerError::InvalidCard)?;
-        eprintln!(
-            "{}",
-            json!({"event":"peer_call", "trace_id":trace_id, "caller":caller,
-            "peer":peer, "recipient_tenant":interface.tenant})
+        tracing::info!(
+            event = "peer_call",
+            caller,
+            peer,
+            recipient_tenant = interface.tenant.as_deref(),
         );
         // Only this leaf operation is sent, never another find_common_slot.
         let request = SendMessageRequest {

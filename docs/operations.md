@@ -105,6 +105,9 @@ python3 scripts/with-env.py gh run list --repo Math1987/aithos-calendar --limit 
 python3 scripts/with-env.py aws logs tail /aws/lambda/calendar-production-health --since 10m
 ```
 
+Application and A2A SDK logs share a JSON formatter, with their source identified
+by `target`; see [logging](logging.md) for filters and correlation fields.
+
 Lambda logs retain 14 days. They contain runtime invocation reports; the handler
 does not log request bodies, credentials, or IP addresses. Health never calls an
 external API. API Gateway access logs are deferred: enabling delivery requires

@@ -130,12 +130,16 @@ a2acli --agent-card "$BOB_CARD" -o json send --data-part '{"operation":"get_avai
 
 ## Tracing the real exchange
 
-Take `trace_id` from the returned data. CloudWatch records JSON events:
+Take `trace_id` from the returned data. CloudWatch records application JSON events
+with `target`, `span.tenant` and `span.trace_id`:
 
 1. `operation_received`, tenant Alice, operation `find_common_slot`.
 2. `peer_call`, caller Alice, recipient tenant Bob.
 3. `operation_received`, tenant Bob, operation `get_availability`.
 4. `negotiation_completed`, tenant Alice, outcome status.
+
+Native SDK request/response/error events share that context. See the
+[logging guide](logging.md) for source filters and the server adapter scope.
 
 The shared trace appears under different AWS request IDs/log streams when Alice
 and Bob run in separate invocations. A supplied valid UUID in request metadata
@@ -153,6 +157,7 @@ python3 scripts/with-env.py aws logs tail /aws/lambda/calendar-production-health
   both directions, trace propagation, exactly one leaf call, absent/unavailable
   peers, invalid payloads/intervals, timeout, disallowed origin and invalid commands.
 - 4 existing discovery/greeting/error tests retained.
+- 1 binary-level JSON logging test checks SDK/application sources and concurrent trace isolation.
 - `scripts/smoke-a2a.py CATALOG_URL` verifies greeting behavior, both collaboration
   directions, no overlap and an absent peer against the running deployment.
 

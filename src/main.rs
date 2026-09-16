@@ -2,6 +2,7 @@ use lambda_http::Error;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Error> {
+    calendar::logging::init()?;
     let listen = std::env::var("CALENDAR_LISTEN").ok();
     let base_url = std::env::var("CALENDAR_PUBLIC_URL").or_else(|error| {
         listen
@@ -18,7 +19,7 @@ async fn main() -> Result<(), Error> {
     let app = calendar::app_with_catalog(&base_url, &catalog_url)?;
     if let Some(address) = listen {
         let listener = tokio::net::TcpListener::bind(&address).await?;
-        eprintln!("Calendar listening on {address}");
+        tracing::info!(event = "listening", %address, "Calendar listening");
         axum::serve(listener, app).await?;
     } else {
         lambda_http::run(app).await?;

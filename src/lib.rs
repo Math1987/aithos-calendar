@@ -1,6 +1,7 @@
 mod a2a;
 mod agents;
 mod discovery;
+pub mod logging;
 mod scheduling;
 
 use axum::{

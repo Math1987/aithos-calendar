@@ -14,6 +14,7 @@ Repository: https://github.com/Math1987/aithos-calendar (public).
 
 ## Documentation
 
+- [Application and SDK logs](docs/logging.md)
 - [Agent-to-agent collaboration](docs/agent-collaboration.md)
 - [Alice/Bob CLI test](docs/a2a-cli-test.md)
 - [Rust migration](docs/rust-migration.md)
