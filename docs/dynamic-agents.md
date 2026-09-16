@@ -1,6 +1,8 @@
 # Gate 4 — persistent identities and Aithos publication
 
-Status: deployed and manually verified on September 16, 2026.
+Historical record: the first Gate 4 deployment was verified on September 16, 2026.
+Its IAM administration API has been superseded by [public onboarding](public-onboarding.md).
+The commands below document that earlier deployment and are no longer the creation flow.
 
 ## Scope and decisions
 

@@ -12,25 +12,17 @@ resource "aws_dynamodb_table" "agents" {
   lifecycle { prevent_destroy = true }
 }
 
-locals {
-  admin_routes = {
-    create  = { method = "PUT", path = "/admin/agents/{id}", invoke_path = "/admin/agents/*" }
-    status  = { method = "GET", path = "/admin/agents/{id}", invoke_path = "/admin/agents/*" }
-    publish = { method = "POST", path = "/admin/agents/{id}/publish", invoke_path = "/admin/agents/*/publish" }
-  }
-}
-resource "aws_apigatewayv2_route" "admin" {
-  for_each           = local.admin_routes
+# Public find-or-create; AWS credentials are only used by Lambda internally.
+resource "aws_apigatewayv2_route" "onboarding" {
   api_id             = aws_apigatewayv2_api.api.id
-  route_key          = "${each.value.method} ${each.value.path}"
+  route_key          = "POST /agents"
   target             = "integrations/${aws_apigatewayv2_integration.health.id}"
-  authorization_type = "AWS_IAM"
+  authorization_type = "NONE"
 }
-resource "aws_lambda_permission" "admin" {
-  for_each      = local.admin_routes
-  statement_id  = "AllowAgentAdmin-${each.key}"
+resource "aws_lambda_permission" "onboarding" {
+  statement_id  = "AllowPublicOnboarding"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.health.function_name
   principal     = "apigateway.amazonaws.com"
-  source_arn    = "${aws_apigatewayv2_api.api.execution_arn}/$default/${each.value.method}${each.value.invoke_path}"
+  source_arn    = "${aws_apigatewayv2_api.api.execution_arn}/$default/POST/agents"
 }

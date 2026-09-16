@@ -5,16 +5,18 @@ public Google booking-page link, and find a suitable appointment automatically.
 
 ## Current status
 
-The Rust service hosts persistent, operator-managed agents through one shared
+The Rust service hosts persistent booking-page agents through one shared
 A2A 1.0 JSON-RPC endpoint. Agent Cards are signed and published on Aithos; Calendar's
 dynamic AI Catalog references their registry URLs. Two agents discovered each
 other and matched mock availability in both directions on September 16, 2026.
-See the [dynamic identities guide](docs/dynamic-agents.md) for commands and evidence.
+Public onboarding accepts a Google booking-page URL and reuses its existing agent.
+See [public onboarding](docs/public-onboarding.md) for the current manual test.
 The static website remains blank.
 Repository: https://github.com/Math1987/aithos-calendar (public).
 
 ## Documentation
 
+- [Public onboarding manual test](docs/public-onboarding.md)
 - [Dynamic identities and Aithos](docs/dynamic-agents.md)
 - [Application and SDK logs](docs/logging.md)
 - [Agent-to-agent collaboration](docs/agent-collaboration.md)
@@ -41,4 +43,4 @@ Terraform state, and generated artifacts out of Git.
 | Primary region | `eu-west-3` (profile configuration) |
 | Environment | Production only |
 
-Calendar reading, booking, visitor authentication and LLM integration have not started.
+Availability reading, booking and LLM integration have not started. The first version requires no user authentication.

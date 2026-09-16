@@ -237,3 +237,12 @@ administration. Aithos hosts signed card bytes; Calendar projects confirmed
 publications into its AI Catalog and keeps serving identical card bytes locally.
 See [dynamic identities](dynamic-agents.md) for the ownership model, key custody,
 idempotency, publication recovery, scoped infrastructure and current limits.
+
+## Public onboarding correction
+
+The first version has no user authentication. `POST /agents` accepts only a public
+Google booking-page URL. A replaceable adapter resolves its canonical identity;
+a deterministic SHA-256 tenant and a conditional DynamoDB insert guarantee one
+agent per page, including concurrent submissions. Existing records and signed
+bytes are reused. The former IAM admin routes are removed; Lambda IAM remains
+internal. No new table, index or worker is introduced. See [public onboarding](public-onboarding.md).

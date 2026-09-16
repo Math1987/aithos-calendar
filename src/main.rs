@@ -39,7 +39,7 @@ async fn main() -> Result<(), Error> {
             &catalog_url,
             store,
             Some(registry),
-            std::env::var("ADMIN_AWS_ACCOUNT_ID")?,
+            std::env::var("CALENDAR_WEBSITE_URL")?,
         )?
     };
     if let Some(address) = listen {

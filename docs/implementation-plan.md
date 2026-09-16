@@ -9,7 +9,7 @@ One runtime hosts several logical agents. The public repository is
 
 Each gate ends with a manual acceptance check, deployed commit and known limits.
 Wait for owner acceptance before the next gate; do not provision future resources
-in advance. The current authorized scope is gate 4: persistent operator-managed identities and signed Aithos publication.
+in advance. The current authorized scope is gate 4: public find-or-create by Google booking-page URL and signed Aithos publication.
 
 ## Gates
 
@@ -19,7 +19,7 @@ in advance. The current authorized scope is gate 4: persistent operator-managed 
 | 1 bis. Rust — complete | Replace Python handler with Rust; build Linux ZIP in CI | Same health JSON, `provided.al2023`, successful deployment and repeat apply without infrastructure changes |
 | 2. A2A and catalog fixtures — deployed and verified | Official Rust A2A SDK; fixed Alice/Bob cards; URL catalog; deterministic responses | Start from catalog URL in CLI, fetch each card, call its tenant, obtain distinct Hello responses; reject unknown tenant |
 | 3. Agent-to-agent exchange — deployed and verified | Alice calls Bob through real A2A HTTP; behavior still mocked | One traced Alice → Bob exchange; correct recipient configuration, bounded call flow, no recursive loop |
-| 4. Dynamic identities and registry — deployed and verified | Create agent/card, publish through Aithos and include card URL in catalog | Create two identities, discover and call both; verify ownership/isolation and retry-safe publication; retire hardcoded production fixtures |
+| 4. Dynamic identities and registry — deployed and verified | Create agent/card, publish through Aithos and include card URL in catalog | Create two identities, discover and call both; verify URL deduplication, immutable reuse and retry-safe publication; retire hardcoded production fixtures |
 | 5. Google calendar logic | Replaceable public-page HTTP reader and deterministic interval selection | Controlled calendars: differing appointment durations, busy event, no common interval; use host duration and verify the full interval |
 | 6. Booking and minimal UI | Anakin adapter, durable operation, agreed pages and spinner/outcome | One real booking; verify attendee identity, invitation, both calendars, retries and ambiguous provider outcomes |
 | 7. LLM | AWS Bedrock behind an explicit application boundary | Natural-language interaction drives the same tested operations; code enforces availability, identity and duplicate prevention |
@@ -31,11 +31,11 @@ protocol client. It does not create an agent. CLI → Alice and CLI → Bob are 
 independent tests. Alice → Bob is gate 3, using Bob's card and recipient tenant.
 Tenant routing is not caller authentication.
 
-For gate 4, decide authentication, ownership, persistence and authorization before
-exposing identity creation. A public booking URL alone is not proof of ownership.
-A registry publication failure must be recoverable without creating duplicate
-agents. The catalog lists Aithos-hosted card URLs; Calendar also serves identical
-signed bytes. Gate 4 uses IAM operator ownership; visitor identity remains deferred.
+For gate 4, public onboarding requires no user authentication. One canonical Google
+booking page maps to one server-managed agent and card. Repeated and concurrent
+submissions reuse the same identity; pending publication can be resumed. Resolving
+page identity brings a small part of gate 5 forward, without reading availability.
+See [public onboarding](public-onboarding.md). A public URL does not prove ownership.
 
 For gate 5, public booking pages expose only their advertised intervals. They do
 not prove availability outside that coverage. Isolate the undocumented HTTP

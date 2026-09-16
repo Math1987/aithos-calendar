@@ -1,7 +1,7 @@
 # Product design
 
 Status: product direction agreed; booking identity and full conflict checking
-remain open. Only the production foundation is in the next implementation scope.
+remain open. Public agent onboarding is implemented; availability reading and booking are later gates.
 
 ## Purpose
 
@@ -25,13 +25,15 @@ Route: `/`.
 - On success, display a shareable Calendar URL and a copy action.
 - On failure, show a short actionable message beside the input.
 
-Proposed share URL: `/book/{opaque_id}`. The storage and identifier implementation
-are deferred until this flow is built. Creating a link does not reserve a meeting
+Share URL: `/book/{id}`. Public onboarding derives a stable agent ID from the
+canonical Google booking-page URL. Repeated submissions return the same agent,
+card and link; one person may have several pages and therefore several agents.
+No user login is required. The booking web page itself is a later UI gate. Creating a link does not reserve a meeting
 or prove that the submitter owns the Google page.
 
 ### 2. Booking: let the visitor supply their availability
 
-Route: `/book/{opaque_id}`.
+Route: `/book/{id}`.
 
 - Show the host's appointment title, duration, and relevant description from the
   target Google page, for example "Talk about AI — 30 minutes".

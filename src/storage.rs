@@ -8,7 +8,8 @@ use std::{collections::HashMap, sync::Mutex};
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Record {
     pub agent: Agent,
-    pub owner: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub booking_page_url: Option<String>,
     pub registry_id: String,
     pub card_url: String,
     pub card_bytes: String,
@@ -46,7 +47,7 @@ impl MemoryStore {
                     let record = Record {
                         card_bytes: serde_json::to_string(&agent.card(base)).unwrap(),
                         card_url: format!("{base}/agents/{}/agent-card.json", agent.id),
-                        owner: "fixture".into(),
+                        booking_page_url: None,
                         registry_id: String::new(),
                         card_digest: String::new(),
                         publication: Value::Null,

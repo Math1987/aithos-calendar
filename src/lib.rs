@@ -1,5 +1,6 @@
 mod a2a;
 mod agents;
+pub mod booking_page;
 mod discovery;
 pub mod identities;
 pub mod logging;
@@ -13,7 +14,7 @@ use axum::{
     http::StatusCode,
     middleware,
     response::{IntoResponse, Response},
-    routing::{get, post, put},
+    routing::{get, post},
 };
 use identities::Identities;
 use serde_json::json;
@@ -36,7 +37,7 @@ pub fn app_with_catalog(base_url: &str, catalog_url: &str) -> Result<Router, lam
         catalog_url,
         Arc::new(storage::MemoryStore::fixtures(base_url)),
         None,
-        String::new(),
+        base_url.to_owned(),
     )
 }
 pub fn app_with_store(
@@ -44,7 +45,26 @@ pub fn app_with_store(
     catalog_url: &str,
     store: Arc<dyn storage::AgentStore>,
     registry: Option<registry::Registry>,
-    admin_account: String,
+    website: String,
+) -> Result<Router, lambda_http::Error> {
+    app_with_pages(
+        base_url,
+        catalog_url,
+        store,
+        registry,
+        website,
+        Arc::new(booking_page::GoogleBookingPages::new()?),
+    )
+}
+
+/// Inject the page identity adapter for isolated HTTP acceptance tests.
+pub fn app_with_pages(
+    base_url: &str,
+    catalog_url: &str,
+    store: Arc<dyn storage::AgentStore>,
+    registry: Option<registry::Registry>,
+    website: String,
+    pages: Arc<dyn booking_page::BookingPages>,
 ) -> Result<Router, lambda_http::Error> {
     let directory = discovery::PeerDirectory::new_with_registry(
         base_url,
@@ -55,23 +75,17 @@ pub fn app_with_store(
         store: store.clone(),
         base: base_url.trim_end_matches('/').into(),
         registry,
-        admin_account,
+        website,
+        pages,
     });
-    let admin = Router::new()
-        .route(
-            "/admin/agents/{id}",
-            put(identities::create).get(identities::status),
-        )
-        .route("/admin/agents/{id}/publish", post(identities::retry))
-        .layer(DefaultBodyLimit::max(16 * 1024))
-        .route_layer(middleware::from_fn_with_state(
-            state.clone(),
-            identities::authorize,
-        ));
+    let onboarding = Router::new()
+        .route("/agents", post(identities::create))
+        .layer(DefaultBodyLimit::max(4 * 1024))
+        .route_layer(middleware::from_fn(identities::deadline));
     let routes = Router::new()
         .route("/.well-known/ai-catalog.json", get(catalog))
         .route("/agents/{tenant}/agent-card.json", get(card))
-        .merge(admin)
+        .merge(onboarding)
         .with_state(state);
     let protocol =
         a2a_server::jsonrpc::jsonrpc_router(Arc::new(a2a::CalendarHandler { directory, store }));

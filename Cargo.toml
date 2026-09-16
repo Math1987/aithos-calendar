@@ -30,6 +30,7 @@ a2a-card = { package = "aithos-a2a-card", version = "=0.2.0" }
 p256 = { version = "=0.13.2", features = ["ecdsa"] }
 rand_core = { version = "=0.6.4", features = ["getrandom"] }
 sha2 = "=0.10.9"
+regex = "=1.13.1"
 
 [dev-dependencies]
 registry-core = { package = "aithos-registry-core", version = "=0.2.0" }

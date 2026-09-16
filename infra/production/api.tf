@@ -27,7 +27,7 @@ resource "aws_lambda_function" "health" {
       CATALOG_URL          = "https://${local.api_domain}/.well-known/ai-catalog.json"
       AGENTS_TABLE         = aws_dynamodb_table.agents.name
       REGISTRY_ORIGIN      = "https://registry.aithos.world"
-      ADMIN_AWS_ACCOUNT_ID = "128066560720"
+      CALENDAR_WEBSITE_URL = "https://${local.website_domain}"
     }
   }
 }

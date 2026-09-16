@@ -35,7 +35,7 @@ impl Registry {
     pub fn prepare(
         &self,
         agent: Agent,
-        owner: String,
+        booking_page_url: Option<String>,
         base: &str,
     ) -> Result<(Record, String), lambda_http::Error> {
         let key = SigningKey::random(&mut rand_core::OsRng);
@@ -71,7 +71,7 @@ impl Registry {
             Record {
                 card_url: format!("{}/v1/agents/{kid}/agent-card.json", self.origin),
                 agent,
-                owner,
+                booking_page_url,
                 registry_id: kid,
                 card_bytes: String::from_utf8(canonical.bytes)?,
                 card_digest: canonical.digest,

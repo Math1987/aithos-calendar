@@ -172,3 +172,11 @@ the table-specific deployment and runtime permissions. Lambda reads project only
 record/publication attributes; recovery signing keys are never returned by the API.
 See [dynamic identities](dynamic-agents.md) for CLI commands and publication retries.
 An uncertain creation is retried with its original UUID; do not generate a new one.
+
+### Public onboarding supersedes IAM administration
+
+The current route is anonymous `POST /agents` with `booking_page_url`. The three
+`/admin/agents/...` routes are removed. `CALENDAR_WEBSITE_URL` replaces the former
+`ADMIN_AWS_ACCOUNT_ID` environment setting. DynamoDB IAM policies are unchanged.
+Repost the same URL to resume a pending publication; never regenerate a tenant.
+See [public onboarding](public-onboarding.md) for current commands.

@@ -7,7 +7,6 @@ use axum::{
     routing::get,
 };
 use calendar::storage::{AgentStore, MemoryStore};
-use lambda_http::{RequestExt, request::RequestContext};
 use serde_json::{Value, json};
 use std::{
     collections::HashMap,
@@ -19,10 +18,39 @@ use std::{
 use tokio::task::JoinHandle;
 use tower::ServiceExt;
 
-const ACCOUNT: &str = "123456789012";
-const OWNER: &str = "arn:aws:sts::123456789012:assumed-role/calendar-owner/session-one";
-const ID1: &str = "22222222-2222-4222-8222-222222222222";
-const ID2: &str = "33333333-3333-4333-8333-333333333333";
+use calendar::booking_page::{BookingPage, BookingPages, GoogleBookingPages, PageError};
+const HOST: &str = "https://calendar.google.com/calendar/appointments/schedules/HostPage";
+const GUEST: &str = "https://calendar.google.com/calendar/appointments/schedules/GuestPage";
+
+#[derive(Default)]
+struct TestPages {
+    validations: std::sync::atomic::AtomicUsize,
+    reject: AtomicBool,
+    barrier: Mutex<Option<Arc<tokio::sync::Barrier>>>,
+}
+#[async_trait::async_trait]
+impl BookingPages for TestPages {
+    async fn resolve(&self, input: &str) -> Result<BookingPage, PageError> {
+        let url = match input {
+            "https://calendar.app.google/host" => HOST,
+            "https://calendar.app.google/guest" => GUEST,
+            _ => input,
+        };
+        GoogleBookingPages::new().unwrap().resolve(url).await
+    }
+    async fn validate(&self, _: &BookingPage) -> Result<(), PageError> {
+        self.validations.fetch_add(1, Ordering::SeqCst);
+        let barrier = self.barrier.lock().unwrap().clone();
+        if let Some(barrier) = barrier {
+            barrier.wait().await;
+        }
+        if self.reject.load(Ordering::SeqCst) {
+            Err(PageError::Unrecognized)
+        } else {
+            Ok(())
+        }
+    }
+}
 
 struct Setup {
     app: Router,
@@ -30,7 +58,7 @@ struct Setup {
     store: Arc<MemoryStore>,
     writes: Arc<Mutex<HashMap<String, String>>>,
     calls: Arc<Mutex<Vec<Value>>>,
-    fail: Arc<AtomicBool>,
+    pages: Arc<TestPages>,
     jobs: Vec<JoinHandle<()>>,
 }
 impl Drop for Setup {
@@ -109,12 +137,14 @@ async fn setup(fail: bool) -> Setup {
     let socket = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", socket.local_addr().unwrap());
     let store = Arc::new(MemoryStore::default());
-    let app = calendar::app_with_store(
+    let pages = Arc::new(TestPages::default());
+    let app = calendar::app_with_pages(
         &base,
         &format!("{base}/.well-known/ai-catalog.json"),
         store.clone(),
         Some(calendar::registry::Registry::new(&registry_origin).unwrap()),
-        ACCOUNT.into(),
+        base.clone(),
+        pages.clone(),
     )
     .unwrap();
     let network = app.clone();
@@ -125,40 +155,29 @@ async fn setup(fail: bool) -> Setup {
         store,
         writes,
         calls,
-        fail,
+        pages,
         jobs: vec![job, registry_job],
     }
 }
-fn definition(name: &str, start: &str, end: &str) -> Value {
-    json!({"name":name,"mock_availability":[{"start":format!("2030-01-15T{start}:00Z"),"end":format!("2030-01-15T{end}:00Z")}]})
-}
-async fn admin(
-    setup: &Setup,
-    method: &str,
-    path: &str,
-    body: Value,
-    owner: Option<&str>,
-) -> (StatusCode, Value) {
-    let mut req = Request::builder()
-        .method(method)
-        .uri(path)
+async fn submit(setup: &Setup, body: Value) -> (StatusCode, Value) {
+    // No authentication or trusted Lambda context at all.
+    let req = Request::builder()
+        .method("POST")
+        .uri("/agents")
         .header("content-type", "application/json")
-        .header("x-owner", OWNER)
-        .header("authorization", "fake-iam-header")
         .body(Body::from(body.to_string()))
         .unwrap();
-    if let Some(owner) = owner {
-        let context=serde_json::from_value(json!({"accountId":ACCOUNT,"http":{"method":method,"path":path,"protocol":"HTTP/1.1","sourceIp":"127.0.0.1","userAgent":"test"},
-            "authorizer":{"iam":{"accountId":ACCOUNT,"userArn":owner}},"routeKey":format!("{method} /admin/agents/{{id}}") })).unwrap();
-        req = req.with_request_context(RequestContext::ApiGatewayV2(context));
-    }
     let response = setup.app.clone().oneshot(req).await.unwrap();
     let status = response.status();
+    assert_eq!(response.headers()["cache-control"], "no-store");
     let bytes = to_bytes(response.into_body(), 65536).await.unwrap();
     (
         status,
         serde_json::from_slice(&bytes).unwrap_or(Value::Null),
     )
+}
+async fn create(setup: &Setup, url: &str) -> (StatusCode, Value) {
+    submit(setup, json!({"booking_page_url":url})).await
 }
 async fn catalog(setup: &Setup) -> Value {
     reqwest::get(format!("{}/.well-known/ai-catalog.json", setup.base))
@@ -170,103 +189,55 @@ async fn catalog(setup: &Setup) -> Value {
 }
 
 #[tokio::test]
-async fn owner_authentication_conflicts_and_retry_after_lost_registry_response() {
+async fn public_creation_reuses_aliases_and_resumes_lost_registry_response() {
     let s = setup(true).await;
-    let path = format!("/admin/agents/{ID1}");
-    let input = definition("Owner one", "09:00", "10:00");
-    assert_eq!(
-        admin(&s, "PUT", &path, input.clone(), None).await.0,
-        StatusCode::FORBIDDEN
-    );
-    let (status, pending) = admin(&s, "PUT", &path, input.clone(), Some(OWNER)).await;
+    let (status, pending) = create(&s, "https://calendar.app.google/host").await;
     assert_eq!(status, StatusCode::ACCEPTED, "{pending}");
     assert_eq!(pending["publication_status"], "pending");
+    assert_eq!(pending["booking_page_url"], HOST);
     assert_eq!(catalog(&s).await["entries"], json!([]));
+    let id = pending["id"].as_str().unwrap();
     assert_eq!(
-        reqwest::get(format!("{}/agents/{ID1}/agent-card.json", s.base))
+        reqwest::get(format!("{}/agents/{id}/agent-card.json", s.base))
             .await
             .unwrap()
             .status(),
         StatusCode::NOT_FOUND
     );
-    let thief = "arn:aws:sts::123456789012:assumed-role/another-owner/session";
-    assert_eq!(
-        admin(&s, "PUT", &path, input.clone(), Some(thief)).await.0,
-        StatusCode::FORBIDDEN
-    );
-    assert_eq!(
-        admin(&s, "GET", &path, Value::Null, Some(thief)).await.0,
-        StatusCode::FORBIDDEN
-    );
-    assert_eq!(
-        admin(
-            &s,
-            "POST",
-            &format!("{path}/publish"),
-            Value::Null,
-            Some(thief)
-        )
-        .await
-        .0,
-        StatusCode::FORBIDDEN
-    );
-    let (status, published) = admin(
-        &s,
-        "POST",
-        &format!("{path}/publish"),
-        Value::Null,
-        Some("arn:aws:sts::123456789012:assumed-role/calendar-owner/session-two"),
-    )
-    .await;
+    // Existing records must not be revalidated or regenerated during a Google outage.
+    s.pages.reject.store(true, Ordering::SeqCst);
+    let (status, published) = create(&s, &format!("{HOST}?gv=true#fragment")).await;
     assert_eq!(status, StatusCode::OK, "{published}");
-    assert_eq!(published["registry_id"], pending["registry_id"]);
-    assert_eq!(s.writes.lock().unwrap().len(), 1);
+    assert_eq!(published["publication_status"], "published");
+    for key in ["id", "registry_id", "agent_card_url", "share_url"] {
+        assert_eq!(pending[key], published[key]);
+    }
+    assert_eq!(s.pages.validations.load(Ordering::SeqCst), 1);
     let calls = s.calls.lock().unwrap();
     assert_eq!(calls.len(), 2);
     assert_eq!(calls[0], calls[1]);
     drop(calls);
-    assert_eq!(
-        admin(&s, "PUT", &path, input, Some(OWNER)).await.0,
-        StatusCode::OK
-    );
+    assert_eq!(create(&s, HOST).await.1, published);
     assert_eq!(
         s.calls.lock().unwrap().len(),
         2,
-        "already published retry avoids another write"
+        "confirmed reuse must not republish"
     );
-    assert_eq!(
-        admin(
-            &s,
-            "PUT",
-            &path,
-            definition("Different", "09:00", "10:00"),
-            Some(OWNER)
-        )
-        .await
-        .0,
-        StatusCode::CONFLICT
-    );
-    assert!(published.get("signing_key").is_none() && published.get("publication").is_none());
+    assert_eq!(s.writes.lock().unwrap().len(), 1);
     assert_eq!(catalog(&s).await["entries"].as_array().unwrap().len(), 1);
+    assert!(published.get("signing_key").is_none());
+    assert!(published.get("owner").is_none());
 }
 
 #[tokio::test]
-async fn dynamic_agents_discover_registry_cards_and_collaborate_without_fixtures() {
+async fn dynamic_page_agents_discover_registry_cards_and_collaborate() {
     let s = setup(false).await;
-    for (id, name, start, end) in [
-        (ID1, "Dynamic host", "09:00", "10:00"),
-        (ID2, "Dynamic guest", "09:30", "10:30"),
-    ] {
-        let (status, body) = admin(
-            &s,
-            "PUT",
-            &format!("/admin/agents/{id}"),
-            definition(name, start, end),
-            Some(OWNER),
-        )
-        .await;
+    let mut ids = Vec::new();
+    for url in [HOST, GUEST] {
+        let (status, body) = create(&s, url).await;
         assert_eq!(status, StatusCode::OK, "{body}");
-        let record = s.store.get(id).await.unwrap().unwrap();
+        let id = body["id"].as_str().unwrap().to_owned();
+        let record = s.store.get(&id).await.unwrap().unwrap();
         let local = reqwest::get(format!("{}/agents/{id}/agent-card.json", s.base))
             .await
             .unwrap()
@@ -274,14 +245,15 @@ async fn dynamic_agents_discover_registry_cards_and_collaborate_without_fixtures
             .await
             .unwrap();
         assert_eq!(local, record.card_bytes);
+        assert_eq!(record.booking_page_url.as_deref(), Some(url));
+        ids.push(id);
     }
-    let catalog = catalog(&s).await;
-    let typed: ai_catalog::AiCatalog = serde_json::from_value(catalog).unwrap();
+    let typed: ai_catalog::AiCatalog = serde_json::from_value(catalog(&s).await).unwrap();
     assert_eq!(typed.entries.len(), 2);
     for entry in typed.entries {
         assert!(!entry.url.unwrap().starts_with(&s.base));
     }
-    for (caller, peer) in [(ID1, ID2), (ID2, ID1)] {
+    for (caller, peer) in [(&ids[0], &ids[1]), (&ids[1], &ids[0])] {
         let reply:Value=reqwest::Client::new().post(format!("{}/a2a",s.base)).json(&json!({"jsonrpc":"2.0","id":"dynamic","method":"SendMessage","params":{
             "tenant":caller,"message":{"role":"ROLE_USER","messageId":"test","parts":[{"data":{"operation":"find_common_slot","peer":format!("urn:aithos:calendar:agent:{peer}"),"duration_minutes":30}}]}
         }})).send().await.unwrap().json().await.unwrap();
@@ -295,46 +267,69 @@ async fn dynamic_agents_discover_registry_cards_and_collaborate_without_fixtures
         assert_eq!(result["reserved"], false);
         assert_eq!(result["slot"]["start"], "2030-01-15T09:30:00Z");
     }
-    assert_eq!(
-        reqwest::get(format!("{}/agents/alice/agent-card.json", s.base))
-            .await
-            .unwrap()
-            .status(),
-        StatusCode::NOT_FOUND
-    );
 }
 
 #[tokio::test]
-async fn concurrent_creation_has_one_identity_and_invalid_definitions_do_not_write() {
+async fn simultaneous_first_submissions_have_one_winner_and_one_card() {
     let s = setup(false).await;
-    let path = format!("/admin/agents/{ID1}");
-    let input = definition("Concurrent", "09:00", "10:00");
+    // Force both requests past the missing-record check before either inserts.
+    *s.pages.barrier.lock().unwrap() = Some(Arc::new(tokio::sync::Barrier::new(2)));
     let (first, second) = futures::join!(
-        admin(&s, "PUT", &path, input.clone(), Some(OWNER)),
-        admin(&s, "PUT", &path, input, Some(OWNER))
+        create(&s, HOST),
+        create(&s, "https://calendar.app.google/host")
     );
     assert_eq!(first.0, StatusCode::OK, "{}", first.1);
     assert_eq!(second.0, StatusCode::OK, "{}", second.1);
-    assert_eq!(first.1["registry_id"], second.1["registry_id"]);
+    assert_eq!(first.1, second.1);
+    assert_eq!(s.pages.validations.load(Ordering::SeqCst), 2);
     assert_eq!(s.writes.lock().unwrap().len(), 1);
+    assert_eq!(s.store.published().await.unwrap().len(), 1);
+    let calls = s.calls.lock().unwrap();
+    assert!(calls.len() >= 1);
+    assert!(calls.iter().all(|c| c == &calls[0]));
+}
+
+#[tokio::test]
+async fn rejected_input_never_creates_records_and_cannot_override_existing_agent() {
+    let s = setup(false).await;
     for input in [
-        definition("Bad", "10:00", "09:00"),
-        json!({"name":"","mock_availability":[]}),
-        json!({"name":"Bad","mock_availability":[],"owner":"someone"}),
+        json!({}),
+        json!({"booking_page_url":"http://127.0.0.1/private"}),
+        json!({"booking_page_url":HOST,"name":"Spoofed"}),
+        json!({"booking_page_url":HOST,"id":"arbitrary"}),
+        json!({"booking_page_url":HOST,"mock_availability":[]}),
+        json!({"booking_page_url":"x".repeat(5000)}),
     ] {
-        assert!(
-            !admin(
-                &s,
-                "PUT",
-                &format!("/admin/agents/{ID2}"),
-                input,
-                Some(OWNER)
+        assert!(!submit(&s, input).await.0.is_success());
+    }
+    assert!(s.store.published().await.unwrap().is_empty());
+    assert!(s.calls.lock().unwrap().is_empty());
+    s.pages.reject.store(true, Ordering::SeqCst);
+    assert_eq!(create(&s, HOST).await.0, StatusCode::UNPROCESSABLE_ENTITY);
+    let id = BookingPage { url: HOST.into() }.agent_id();
+    assert!(s.store.get(&id).await.unwrap().is_none());
+    s.pages.reject.store(false, Ordering::SeqCst);
+    let original = create(&s, HOST).await.1;
+    assert_eq!(
+        submit(&s, json!({"booking_page_url":HOST,"name":"Changed"}))
+            .await
+            .0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert_eq!(create(&s, HOST).await.1, original);
+    for method in ["GET", "PUT", "POST"] {
+        let response = s
+            .app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri("/admin/agents/old")
+                    .body(Body::empty())
+                    .unwrap(),
             )
             .await
-            .0
-            .is_success()
-        );
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
-    assert!(s.store.get(ID2).await.unwrap().is_none());
-    assert!(!s.fail.load(Ordering::SeqCst));
 }

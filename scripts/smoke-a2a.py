@@ -3,6 +3,7 @@
 import datetime
 import json
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
@@ -51,6 +52,14 @@ def main(catalog_url):
     assert len({e["identifier"] for e in entries}) == len(entries)
     origin = urllib.parse.urlsplit(catalog_url)
     api = f"{origin.scheme}://{origin.netloc}/a2a"
+    # Public onboarding must be reachable without IAM; invalid input creates nothing.
+    try:
+        fetch(f"{origin.scheme}://{origin.netloc}/agents", {"booking_page_url":"https://example.com/not-google"})
+        raise AssertionError("Invalid booking URL was accepted")
+    except urllib.error.HTTPError as error:
+        assert error.code == 400, error.code
+        assert json.load(error)["error"] == "invalid_booking_page_url"
+    print("PASS anonymous onboarding reachable and invalid URL rejected")
     agents = []
     for entry in entries:
         assert entry["type"] == "application/a2a-agent-card+json"
