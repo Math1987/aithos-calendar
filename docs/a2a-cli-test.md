@@ -1,6 +1,6 @@
 # Alice/Bob A2A acceptance gate
 
-Status: local integration and official CLI checks passed; production deployment pending.
+Status: deployed and verified locally and in production on 2026-09-16.
 This is roadmap gate 2, following the completed Rust foundation.
 
 ## What is real and what is mocked
@@ -145,4 +145,18 @@ manual acceptance above uses the official A2A client implementation.
   unsupported stateful/streaming methods and malformed/non-text messages.
 - Official CLI 0.2.1 returned both greetings from card-derived tenants locally.
 - CLI rejected unknown and missing tenants with exit 1 and unknown cards with exit 3.
-- Terraform validation passed. Production verification pending.
+- The actual executable passed local Lambda Runtime API + HTTP API v2 checks for
+  health, catalog, Agent Card and A2A message routes.
+- Terraform validation passed.
+- Deployed application commit: `eb8b772875faa595b4f36252159a496a08929376`.
+- [Production workflow](https://github.com/Math1987/aithos-calendar/actions/runs/35059585542)
+  succeeded: 4 integration tests, Linux release build, health check and catalog/A2A smoke checks.
+- Terraform applied 6 additions (3 routes and 3 invoke permissions), 1 in-place
+  Lambda update and 0 deletions. Existing API, domains and website were retained.
+- Official CLI 0.2.1 also passed the complete catalog → card → message sequence
+  against the production domain for both agents, with card-derived tenants.
+  Missing and unknown tenants returned `INVALID_PARAMS` / `-32602`, exit 1.
+- HTTPS health and blank website remain functional. CloudWatch invocation reports
+  showed successful execution of the new binary, with no observed runtime errors.
+- The local test server was stopped after acceptance; the release CLI remains
+  available under ignored `.build/tools/` for the owner's manual checks.

@@ -5,7 +5,7 @@ public Google booking-page link, and find a suitable appointment automatically.
 
 ## Current status
 
-The Rust production foundation is deployed. The next gate adds a URL catalog,
+The Rust service is deployed with a URL catalog,
 Alice/Bob Agent Cards and a shared A2A 1.0 JSON-RPC endpoint with mock greetings.
 See the [CLI test guide](docs/a2a-cli-test.md) for deployment status and commands.
 The static website remains blank.

@@ -1,6 +1,6 @@
 # Technical architecture
 
-Status: the Rust foundation is deployed; the Alice/Bob mock A2A gate is being added.
+Status: the Rust foundation and Alice/Bob mock A2A gate are deployed and verified.
 The sections below describe the foundation; the A2A section records its extension.
 
 ## Confirmed choices
