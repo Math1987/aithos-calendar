@@ -62,13 +62,18 @@ Keep these values in the ignored `.env`; `scripts/with-env.py` supports them:
 
 ```dotenv
 ANAKIN_API_KEY=your_key
-BOOKING_TEST_FIRST_NAME=your_test_first_name
-BOOKING_TEST_LAST_NAME=your_test_last_name
 BOOKING_TEST_EMAIL=your_test_inbox
+# Optional overrides; otherwise Calendar / Guest:
+# BOOKING_TEST_FIRST_NAME=Calendar
+# BOOKING_TEST_LAST_NAME=Guest
 ```
 
-The first real test uses this one fixed attendee, per the owner’s decision. Do
-not infer a visitor identity from a public booking URL.
+The first real test uses this one fixed attendee, per the owner’s decision.
+Names default to Calendar / Guest. Email has no default: provide one real inbox
+you control. Google sends booking communications to that identity and may require
+a verification code. A shared service attendee can be reused for controlled
+tests, but it does not invite the actual visitor or ensure their calendar becomes
+busy. Do not infer a visitor identity from a public booking URL.
 
 ### Controlled one-booking test
 

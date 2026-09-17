@@ -16,8 +16,9 @@ impl Attendee {
     pub fn from_env() -> Result<Self, BookingError> {
         let read = |key| std::env::var(key).map_err(|_| BookingError::NotConfigured);
         let attendee = Self {
-            first_name: read("BOOKING_TEST_FIRST_NAME")?,
-            last_name: read("BOOKING_TEST_LAST_NAME")?,
+            first_name: std::env::var("BOOKING_TEST_FIRST_NAME")
+                .unwrap_or_else(|_| "Calendar".into()),
+            last_name: std::env::var("BOOKING_TEST_LAST_NAME").unwrap_or_else(|_| "Guest".into()),
             email: read("BOOKING_TEST_EMAIL")?,
         };
         attendee.validate()?;

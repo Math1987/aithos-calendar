@@ -108,7 +108,8 @@ the submitter as its owner.
 
 For the first controlled booking test, use one fixed attendee configured only
 on the server (`BOOKING_TEST_FIRST_NAME`, `BOOKING_TEST_LAST_NAME`,
-`BOOKING_TEST_EMAIL`). This was agreed on September 17, 2026.
+`BOOKING_TEST_EMAIL`). Names default to Calendar / Guest; only the email is
+required configuration. This was agreed on September 17, 2026.
 The chosen inbox must be checked for confirmation and any verification request.
 This test identity does not establish the visitor’s identity or guarantee that
 the visitor’s own calendar becomes busy. Before public booking, decide which
