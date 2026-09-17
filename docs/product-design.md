@@ -95,7 +95,7 @@ start grids, buffers, and existing events before accepting it as the product rul
 Never interpret an unknown interval as free. Exact conflict checking outside
 those exposed intervals may require another availability source.
 
-## Booking identity: deferred decision
+## Booking identity: controlled test agreed; public flow deferred
 
 Anakin's booking action requests first name, last name, and email. The email
 identifies the guest and is used for booking communications/invitations. Google
@@ -106,8 +106,13 @@ establish that the visitor receives the invitation or that their calendar become
 busy. Extracting identity from a supplied public URL also does not authenticate
 the submitter as its owner.
 
-Before implementation, decide which identity books, whether missing details may
-be requested, and how to verify that both people's calendars reflect the meeting.
+For the first controlled booking test, use one fixed attendee configured only
+on the server (`BOOKING_TEST_FIRST_NAME`, `BOOKING_TEST_LAST_NAME`,
+`BOOKING_TEST_EMAIL`). This was agreed on September 17, 2026.
+The chosen inbox must be checked for confirmation and any verification request.
+This test identity does not establish the visitor’s identity or guarantee that
+the visitor’s own calendar becomes busy. Before public booking, decide which
+identity books and verify that both people’s calendars reflect the meeting.
 Do not introduce these fields or a shared mailbox during the foundation stage.
 
 ## Error cases for the future booking flow

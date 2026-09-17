@@ -8,7 +8,8 @@ import sys
 root = Path(__file__).resolve().parents[1]
 env = os.environ.copy()
 allowed = {"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
-           "AWS_DEFAULT_REGION", "AWS_REGION", "GH_TOKEN"}
+           "AWS_DEFAULT_REGION", "AWS_REGION", "GH_TOKEN", "ANAKIN_API_KEY",
+           "BOOKING_TEST_FIRST_NAME", "BOOKING_TEST_LAST_NAME", "BOOKING_TEST_EMAIL"}
 path = root / ".env"
 if path.exists():
     for line in path.read_text().splitlines():

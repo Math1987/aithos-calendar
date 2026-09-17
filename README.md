@@ -18,6 +18,7 @@ Repository: https://github.com/Math1987/aithos-calendar (public).
 
 ## Documentation
 
+- [Real provider checks (in progress)](docs/live-providers.md)
 - [Public onboarding manual test](docs/public-onboarding.md)
 - [Dynamic identities and Aithos](docs/dynamic-agents.md)
 - [Application and SDK logs](docs/logging.md)
@@ -45,4 +46,6 @@ Terraform state, and generated artifacts out of Git.
 | Primary region | `eu-west-3` (profile configuration) |
 | Environment | Production only |
 
-Availability reading, booking and LLM integration have not started. The first version requires no user authentication.
+Real Google availability and the Anakin transport are being developed behind
+separate adapters; production still uses mock availability and performs no
+booking. LLM integration has not started. The first version requires no user authentication.

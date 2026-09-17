@@ -9,8 +9,9 @@ One runtime hosts several logical agents. The public repository is
 
 Each gate ends with a manual acceptance check, deployed commit and known limits.
 Wait for owner acceptance before the next gate; do not provision future resources
-in advance. The current authorized scope includes the Gate 4 browser preview: reproduce public
-onboarding and the mocked A2A exchange with a minimal web interface.
+in advance. The current authorized scope is the real Google HTTP reader and Anakin booking
+integration. Begin with controlled provider checks, then connect them to A2A
+and the browser. A fixed server-side test attendee was agreed on September 17.
 
 ## Gates
 
@@ -22,7 +23,7 @@ onboarding and the mocked A2A exchange with a minimal web interface.
 | 3. Agent-to-agent exchange — deployed and verified | Alice calls Bob through real A2A HTTP; behavior still mocked | One traced Alice → Bob exchange; correct recipient configuration, bounded call flow, no recursive loop |
 | 4. Dynamic identities and registry — deployed and verified | Create agent/card, publish through Aithos and include card URL in catalog | Create two identities, discover and call both; verify URL deduplication, immutable reuse and retry-safe publication; retire hardcoded production fixtures |
 | 4 bis. Browser preview — deployed and verified | Home, shared test page, tutorial; spinner and mock success/error | Create/reuse two page agents in a browser, obtain the mock slot, reject identical/invalid links; see [browser test](browser-test.md) |
-| 5. Google calendar logic | Replaceable public-page HTTP reader and deterministic interval selection | Controlled calendars: differing appointment durations, busy event, no common interval; use host duration and verify the full interval |
+| 5. Google calendar logic — in progress | Replaceable public-page HTTP reader and deterministic interval selection | Controlled calendars: differing appointment durations, busy event, no common interval; use host duration and verify the full interval |
 | 6. Booking | Anakin adapter, durable operation, connect the existing UI to real booking | One real booking; verify attendee identity, invitation, both calendars, retries and ambiguous provider outcomes |
 | 7. LLM | AWS Bedrock behind an explicit application boundary | Natural-language interaction drives the same tested operations; code enforces availability, identity and duplicate prevention |
 
@@ -44,8 +45,9 @@ not prove availability outside that coverage. Isolate the undocumented HTTP
 protocol, validate URL hosts and redirects, and resolve coverage gaps before
 booking. Match the target appointment duration, not equal page durations.
 
-For gate 6, resolve booking identity and email verification. A shared service
-mailbox is an option to evaluate, not an accepted substitute for the visitor.
+For gate 6, the first controlled test uses a fixed server-side attendee. Validate
+email confirmation and any Google verification requirements. This test identity
+is not an accepted substitute for the visitor in the final public flow.
 Use durable operation status and an appropriate execution mechanism for Anakin's
 asynchronous work. Do not retry uncertain submissions blindly. Do not keep HTTP
 requests waiting for a long booking operation or run background work after a

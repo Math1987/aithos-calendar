@@ -1,4 +1,4 @@
-//! Google booking-page identity only. Availability reading belongs to a later gate.
+//! Public Google booking-page identity and bounded HTML access.
 use async_trait::async_trait;
 use reqwest::{Client, Url};
 use sha2::{Digest, Sha256};
@@ -55,7 +55,7 @@ impl GoogleBookingPages {
 
 // Every network destination, including every redirect, goes through this allowlist.
 // Queries/fragments are presentation/tracking, never part of the schedule identity.
-fn normalized(input: &str) -> Result<Url, PageError> {
+pub(crate) fn normalized(input: &str) -> Result<Url, PageError> {
     let input = input.trim();
     if input.len() > 2048 || input.chars().any(|c| c.is_control() || c == '\\') {
         return Err(PageError::Invalid);
@@ -142,6 +142,12 @@ impl BookingPages for GoogleBookingPages {
         Err(PageError::Invalid)
     }
     async fn validate(&self, page: &BookingPage) -> Result<(), PageError> {
+        recognized_page(&self.html(page).await?, page)
+    }
+}
+
+impl GoogleBookingPages {
+    pub(crate) async fn html(&self, page: &BookingPage) -> Result<String, PageError> {
         let mut url = normalized(&page.url)?;
         if url.host_str() != Some("calendar.google.com") {
             return Err(PageError::Invalid);
@@ -185,7 +191,7 @@ impl BookingPages for GoogleBookingPages {
                 bytes.extend_from_slice(&chunk);
             }
             let html = std::str::from_utf8(&bytes).map_err(|_| PageError::Unrecognized)?;
-            return recognized_page(html, page);
+            return Ok(html.to_owned());
         }
         Err(PageError::Unrecognized)
     }

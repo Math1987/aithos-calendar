@@ -1,5 +1,7 @@
 mod a2a;
 mod agents;
+pub mod availability;
+pub mod booking;
 pub mod booking_page;
 mod discovery;
 pub mod identities;
