@@ -73,3 +73,21 @@ from tomorrow. The first owner-confirmed browser booking is the live validation
 step; inspect its Anakin result before automatic confirmed-success classification. The usable version has no LLM or Bedrock dependency.
 
 Gate 6 implementation and remaining live confirmation prerequisite: [browser booking](booking-browser.md).
+
+
+## Google account connector — September 2026
+
+The next gates replace the public-page provider path for authenticated accounts:
+
+1. **Sign-in and persistent identity**: Google login, secure session, one profile and
+   Aithos AgentCard per verified Google account. Reconnect/reuse and two-account
+   browser acceptance: [manual procedure](google-sign-in.md).
+2. **Calendar access and A2A availability**: incremental consent, encrypted offline
+   credentials, primary calendars, 09:00–18:00 weekdays in each owner's timezone,
+   30-minute slots from tomorrow. Each agent accesses only its owner's calendar.
+3. **Official Google booking**: recheck availability, explicit Book action, one
+   organizer event and guest invitation, idempotency and clear outcomes.
+4. **Preferences**: multiple calendars and optional LLM ranking of valid slots.
+
+No LLM is required for the first three gates. Anonymous page identities are not
+automatically migrated or assigned to a Google account.

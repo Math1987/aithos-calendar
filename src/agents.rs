@@ -6,6 +6,8 @@ pub struct Agent {
     pub id: String,
     #[serde(default)]
     pub live: bool,
+    #[serde(default)]
+    pub google_account: bool,
     pub name: String,
     pub slots: Vec<crate::scheduling::Slot>,
 }
@@ -20,6 +22,7 @@ pub fn fixtures() -> Vec<Agent> {
     .map(|(id, name, ranges)| Agent {
         id: id.into(),
         live: false,
+        google_account: false,
         name: name.into(),
         slots: ranges
             .into_iter()
@@ -41,6 +44,14 @@ impl Agent {
     }
 
     pub fn card(&self, base_url: &str) -> AgentCard {
+        if self.google_account {
+            return serde_json::from_value(json!({
+                "name":self.name, "description":"Account-linked Calendar agent. Google sign-in is configured; calendar availability and booking are not enabled yet.",
+                "version":"0.5.0", "supportedInterfaces":[{"url":format!("{base_url}/a2a"),"protocolBinding":"JSONRPC","protocolVersion":"1.0","tenant":self.id}],
+                "capabilities":{}, "defaultInputModes":["text/plain"], "defaultOutputModes":["text/plain"],
+                "skills":[{"id":"greeting","name":"Greeting","description":"Returns a greeting. No calendar access or booking yet.","tags":["greeting"]}]
+            })).expect("account card matches SDK schema");
+        }
         if self.live {
             return serde_json::from_value(json!({
                 "name":self.name, "description":"Reads public Google booking-page availability and finds a common offered host slot through A2A. Does not book appointments.",

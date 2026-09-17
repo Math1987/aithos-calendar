@@ -23,13 +23,18 @@ resource "aws_lambda_function" "health" {
   depends_on       = [aws_cloudwatch_log_group.lambda]
   environment {
     variables = {
-      CALENDAR_PUBLIC_URL  = "https://${local.api_domain}"
-      CATALOG_URL          = "https://${local.api_domain}/.well-known/ai-catalog.json"
-      BOOKINGS_TABLE       = aws_dynamodb_table.bookings.name
-      ANAKIN_SECRET_ID     = "calendar/production/anakin"
-      AGENTS_TABLE         = aws_dynamodb_table.agents.name
-      REGISTRY_ORIGIN      = "https://registry.aithos.world"
-      CALENDAR_WEBSITE_URL = "https://${local.website_domain}"
+      CALENDAR_PUBLIC_URL           = "https://${local.api_domain}"
+      CATALOG_URL                   = "https://${local.api_domain}/.well-known/ai-catalog.json"
+      BOOKINGS_TABLE                = aws_dynamodb_table.bookings.name
+      ANAKIN_SECRET_ID              = "calendar/production/anakin"
+      AUTH_TABLE                    = aws_dynamodb_table.auth.name
+      GOOGLE_OAUTH_CLIENT_ID        = "235708078636-686f8i71em5mmsn1b29prrfv4tl8gpt3.apps.googleusercontent.com"
+      GOOGLE_OAUTH_REDIRECT_URI     = "https://${local.api_domain}/auth/google/callback"
+      GOOGLE_OAUTH_CLIENT_SECRET_ID = "calendar/production/google-oauth-client"
+      GOOGLE_OAUTH_TEST_USERS       = "mathieu@aithos.fr,mathieucolla@gmail.com"
+      AGENTS_TABLE                  = aws_dynamodb_table.agents.name
+      REGISTRY_ORIGIN               = "https://registry.aithos.world"
+      CALENDAR_WEBSITE_URL          = "https://${local.website_domain}"
     }
   }
 }
@@ -39,10 +44,11 @@ resource "aws_apigatewayv2_api" "api" {
   protocol_type                = "HTTP"
   disable_execute_api_endpoint = true
   cors_configuration {
-    allow_origins = ["https://${local.website_domain}"]
-    allow_methods = ["GET", "POST", "OPTIONS"]
-    allow_headers = ["content-type", "a2a-version"]
-    max_age       = 300
+    allow_credentials = true
+    allow_origins     = ["https://${local.website_domain}"]
+    allow_methods     = ["GET", "POST", "OPTIONS"]
+    allow_headers     = ["content-type", "a2a-version"]
+    max_age           = 300
   }
 }
 resource "aws_apigatewayv2_integration" "health" {
@@ -91,6 +97,11 @@ resource "aws_apigatewayv2_api_mapping" "api" {
 # Discovery and A2A share the existing function and integration.
 locals {
   agent_routes = {
+    auth_start     = { method = "GET", path = "/auth/google/start", invoke_path = "/auth/google/start" }
+    auth_callback  = { method = "GET", path = "/auth/google/callback", invoke_path = "/auth/google/callback" }
+    auth_me        = { method = "GET", path = "/auth/me", invoke_path = "/auth/me" }
+    auth_logout    = { method = "POST", path = "/auth/logout", invoke_path = "/auth/logout" }
+    auth_agent     = { method = "POST", path = "/auth/agent", invoke_path = "/auth/agent" }
     catalog        = { method = "GET", path = "/.well-known/ai-catalog.json", invoke_path = "/.well-known/ai-catalog.json" }
     schedule       = { method = "GET", path = "/agents/{tenant}/schedule", invoke_path = "/agents/*/schedule" }
     cards          = { method = "GET", path = "/agents/{tenant}/agent-card.json", invoke_path = "/agents/*/agent-card.json" }

@@ -26,6 +26,8 @@ Repository: https://github.com/Math1987/aithos-calendar (public).
 
 ## Documentation
 
+- [Google sign-in manual gate](docs/google-sign-in.md)
+- [Google OAuth setup](docs/google-oauth-setup.md)
 - [Real provider checks (in progress)](docs/live-providers.md)
 - [Public onboarding manual test](docs/public-onboarding.md)
 - [Dynamic identities and Aithos](docs/dynamic-agents.md)

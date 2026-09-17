@@ -125,6 +125,7 @@ pub async fn create(
         let agent = Agent {
             id: id.clone(),
             live: state.reader.is_some(),
+            google_account: false,
             name: format!(
                 "Booking page {}{}",
                 &id[..8],
@@ -180,6 +181,10 @@ pub async fn schedule(
             Ok(_) => return failure(StatusCode::NOT_FOUND, "unknown_agent"),
             Err(_) => return failure(StatusCode::SERVICE_UNAVAILABLE, "storage_unavailable"),
         };
+        if record.agent.google_account {
+            return Json(json!({"id":id,"mode":"google_account","calendar_connected":false}))
+                .into_response();
+        }
         if !record.agent.live {
             return failure(StatusCode::CONFLICT, "agent_upgrade_required");
         }

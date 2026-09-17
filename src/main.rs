@@ -45,6 +45,26 @@ async fn main() -> Result<(), Error> {
                 calendar::availability::GoogleHttpReader::new()?,
             )),
         )?;
+        let app = app.merge(calendar::auth::router(calendar::auth::Auth {
+            store: std::sync::Arc::new(calendar::auth_store::DynamoAuthStore::new(
+                aws_sdk_dynamodb::Client::new(&config),
+                std::env::var("AUTH_TABLE")?,
+            )),
+            agents: store.clone(),
+            provider: std::sync::Arc::new(calendar::google_identity::GoogleIdentity::new(
+                std::env::var("GOOGLE_OAUTH_CLIENT_ID")?,
+                std::env::var("GOOGLE_OAUTH_REDIRECT_URI")?,
+                std::env::var("GOOGLE_OAUTH_CLIENT_SECRET_ID")?,
+                aws_sdk_secretsmanager::Client::new(&config),
+            )?),
+            registry: calendar::registry::Registry::new(&std::env::var("REGISTRY_ORIGIN")?)?,
+            base: base_url.clone(),
+            website: std::env::var("CALENDAR_WEBSITE_URL")?,
+            allowed_emails: std::env::var("GOOGLE_OAUTH_TEST_USERS")?
+                .split(',')
+                .map(|v| v.trim().to_owned())
+                .collect(),
+        }));
         if let (Ok(table), Ok(secret_id)) = (
             std::env::var("BOOKINGS_TABLE"),
             std::env::var("ANAKIN_SECRET_ID"),

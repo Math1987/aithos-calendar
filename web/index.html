@@ -74,7 +74,7 @@
 <div class="shell">
   <header>
     <a class="brand" href="/" aria-label="Calendar home"><svg aria-hidden="true" viewBox="0 0 28 28" fill="none"><rect x="3" y="5" width="22" height="20" rx="5" stroke="currentColor" stroke-width="1.7"/><path d="M3 12h22M9 2v6M19 2v6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="m10 18 3 3 6-6" stroke="#285c46" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>Calendar</a>
-    <span class="badge">Find a time. Make it happen.</span>
+    <a class="badge" href="/account">Your account</a>
   </header>
   <main id="app" aria-busy="false"></main>
   <noscript><p>Enable JavaScript to create a link and run the calendar test.</p></noscript>
@@ -197,7 +197,7 @@ const note = '<p class="notice" id="preview-note">We suggest the first shared ti
 
 function home() {
   document.title = 'Calendar — Find a time together';
-  app.innerHTML = `<div class="eyebrow">One link. A time together.</div><h1>Find a time<br>together.</h1><p class="intro">Paste your Google booking-page link.<br>Get a simple link to share with someone.</p><section class="panel" aria-label="Create your link">${form('Create link')}<div class="share" id="share" hidden><label for="share-url">Your link to share</label><input id="share-url" readonly><div class="actions"><button class="secondary" id="copy" type="button">Copy link</button><a id="open-link">Open link →</a></div><div id="copy-feedback" class="copy-feedback" role="status"></div></div></section>${note}`;
+  app.innerHTML = `<div class="eyebrow">One link. A time together.</div><h1>Find a time<br>together.</h1><p class="intro">Give your Google account its own calendar agent.</p><section class="panel"><a class="primary" href="/account">Continue with Google →</a><p class="notice">Sign in and get your agent’s link. Calendar access and scheduling for connected accounts are coming next.</p></section><p class="notice">Already using public booking pages? You can still create a link below.</p><section class="panel" aria-label="Create your link">${form('Create link')}<div class="share" id="share" hidden><label for="share-url">Your link to share</label><input id="share-url" readonly><div class="actions"><button class="secondary" id="copy" type="button">Copy link</button><a id="open-link">Open link →</a></div><div id="copy-feedback" class="copy-feedback" role="status"></div></div></section>${note}`;
   document.querySelector('#booking-form').addEventListener('submit', event => {
     event.preventDefault();
     const url = document.querySelector('#booking-url').value.trim();
@@ -249,6 +249,7 @@ async function booking(id) {
     const endpoint = card.supportedInterfaces?.find(i => i.protocolBinding === 'JSONRPC' && i.protocolVersion === '1.0' && i.tenant === id && i.url === API + '/a2a');
     if (!endpoint) throw new UserError('This shared link is not supported by the current test.');
     const metadata = await request('/agents/' + encodeURIComponent(id) + '/schedule', controller.signal);
+    if (metadata.id === id && metadata.mode === 'google_account') { await accountPage(id); return; }
     if (metadata.id !== id || metadata.mock !== false || !metadata.schedule?.title ||
         !Number.isInteger(metadata.schedule.duration_minutes) || metadata.schedule.duration_minutes < 1 || metadata.schedule.duration_minutes > 1440) {
       throw new UserError('We could not read the meeting details. Please try again.');
@@ -261,7 +262,7 @@ async function booking(id) {
   } catch (error) {
     outcome('This link is unavailable', error instanceof UserError ? error.message : 'We could not load this link. Please reload the page to try again.');
   } finally { clearTimeout(timer); app.setAttribute('aria-busy', 'false'); }
-  document.querySelector('#booking-form').addEventListener('submit', event => {
+  document.querySelector('#booking-form')?.addEventListener('submit', event => {
     event.preventDefault();
     if (!host) return;
     const url = document.querySelector('#booking-url').value.trim();
@@ -400,8 +401,89 @@ function tutorial() {
   app.className = 'tutorial';
   app.innerHTML = `<div class="eyebrow">A quick guide</div><h1>Get your Google<br>booking-page link.</h1><p class="intro">Use a public appointment booking page, rather than an event invitation or calendar feed.</p><section class="panel"><ol><li>On a computer, open <a href="https://calendar.google.com/" target="_blank" rel="noopener noreferrer">Google Calendar</a>. Choose <strong>Create → Appointment schedule</strong>.</li><li>Set the title, duration, availability and time zone. Under calendar availability, include the calendars that should block busy times.</li><li>Complete the booking-page settings and save. Under “Booking pages”, hover over your schedule and choose “Copy link”.</li><li>Paste that public link into Calendar. A short link beginning with <strong>calendar.app.google</strong> works too.</li></ol><p class="notice">Available features depend on your Google account. <a href="https://support.google.com/calendar/answer/10729749?hl=en" target="_blank" rel="noopener noreferrer">Google’s setup guide</a> · <a href="https://support.google.com/calendar/answer/10733297?hl=en" target="_blank" rel="noopener noreferrer">Sharing your booking page</a></p></section><p class="notice"><a href="/">← Back to Calendar</a></p>`;
 }
+
+async function authRequest(path, method = 'GET') {
+  const response = await fetch(API + path, {method, credentials:'include', cache:'no-store', signal:AbortSignal.timeout(25000)});
+  if (response.status === 204) return null;
+  const data = await response.json();
+  if (!response.ok) { const error = new Error(data.error); error.status = response.status; throw error; }
+  return data;
+}
+async function accountPage(sharedHost) {
+  document.title = 'Calendar — Your Google account';
+  const params = new URLSearchParams(location.search);
+  const requestedHost = sharedHost || params.get('host');
+  const returnHost = validId(requestedHost || '') ? requestedHost : null;
+  const loginErrors = {
+    invalid_login:'This sign-in attempt expired or was already used. Please start again.',
+    login_cancelled:'Sign-in was cancelled. You can try again when you are ready.',
+    google_login_failed:'Google sign-in could not be completed. Please try again.',
+    test_account_required:'This pilot is limited to the two configured test accounts.',
+  };
+  const loginError = loginErrors[params.get('error')];
+  if (params.has('error')) history.replaceState(null,'',location.pathname + (returnHost ? '?host='+encodeURIComponent(returnHost) : ''));
+  app.innerHTML = `<div class="eyebrow">Your calendar agent</div><h1>${returnHost ? 'A time together.<br>Starting with you.' : 'One account.<br>Your own agent.'}</h1><p class="intro">Sign in with Google to create or find your personal agent.</p><section class="panel"><div id="account-content"><p>Checking your session…</p></div><div id="status" class="status" role="status" aria-live="polite" hidden></div></section>`;
+  const content = document.querySelector('#account-content');
+  const signIn = () => {
+    content.replaceChildren();
+    const link = document.createElement('a'); link.className='primary'; link.textContent='Continue with Google';
+    link.href=API+'/auth/google/start'+(returnHost ? '?host='+encodeURIComponent(returnHost) : '');
+    const note=document.createElement('p'); note.className='notice'; note.textContent='This step creates your agent. Calendar access and booking are not enabled yet.';
+    content.append(link,note);
+    if (loginError) outcome('Sign-in needs another try',loginError);
+  };
+  let profile;
+  try { profile=await authRequest('/auth/me'); }
+  catch(error) {
+    if(error.status===401) {signIn();return;}
+    content.textContent='Your session could not be checked.';
+    outcome('Connection unavailable','Reload this page to try again.'); return;
+  }
+  content.replaceChildren();
+  const name=document.createElement('strong'); name.textContent=profile.name;
+  const email=document.createElement('p'); email.textContent=profile.email;
+  const logout=document.createElement('button'); logout.className='secondary';logout.textContent='Sign out';
+  logout.addEventListener('click',async()=>{
+    logout.disabled=true;
+    try {await authRequest('/auth/logout','POST');location.assign('/account');}
+    catch {logout.disabled=false;outcome('Sign-out failed','Please try again.');}
+  });
+  content.append(name,email,logout);
+  if(loginError) outcome('Sign-in needs another try',loginError);
+  const prepare = async () => {
+    loading('Preparing your agent…');
+    try {
+      let agent;
+      for (let attempt=0;attempt<4;attempt++) {
+        agent=await authRequest('/auth/agent','POST');
+        if(agent.publication_status==='published') break;
+        if(attempt<3) await new Promise(resolve=>setTimeout(resolve,1500));
+      }
+      if(agent.publication_status!=='published') throw new Error('pending');
+      if(agent.id!==profile.id || agent.share_url!==WEBSITE+'/book/'+agent.id) throw new Error('invalid');
+      outcome('Your agent is ready', returnHost ? 'Your account is connected. Finding a shared time with this agent will be available once Calendar access is enabled.' : 'Your account is connected. Share your agent’s link; Calendar access and scheduling will be available in the next step.','success');
+      const section=document.createElement('div');section.className='share';
+      const label=document.createElement('label');label.htmlFor='account-share';label.textContent='Your agent’s link';
+      const input=document.createElement('input');input.id='account-share';input.readOnly=true;input.value=agent.share_url;
+      const copy=document.createElement('button');copy.className='secondary';copy.textContent='Copy link';
+      copy.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(input.value);copy.textContent='Copied';}catch{input.focus();input.select();}});
+      const details=document.createElement('details');const summary=document.createElement('summary');summary.textContent='Agent details';
+      const id=document.createElement('code');id.textContent=agent.identifier;
+      const card=document.createElement('a');card.textContent='View AgentCard';
+      const cardUrl=new URL(agent.agent_card_url);
+      if(cardUrl.origin==='https://registry.aithos.world'){card.href=cardUrl.href;card.target='_blank';card.rel='noopener noreferrer';}
+      details.append(summary,id,card);section.append(label,input,copy,details);document.querySelector('#status').append(section);
+    } catch {
+      outcome('Your account is connected','Your agent could not be published yet. Retry to continue with the same identity.');
+      const retry=document.createElement('button');retry.textContent='Retry';retry.addEventListener('click',prepare);document.querySelector('#status').append(retry);
+    }
+  };
+  await prepare();
+}
+
 const path = location.pathname.replace(/\/$/, '') || '/';
 if (path === '/' || path === '/index.html') home();
+else if (path === '/account') accountPage();
 else if (path === '/help/google-booking-page') tutorial();
 else {
   const match = /^\/book\/([a-zA-Z0-9_-]{1,64})$/.exec(path);

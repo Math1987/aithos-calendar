@@ -72,6 +72,9 @@ jobs:
       - name: Verify browser routes and CORS
         working-directory: .
         run: python3 scripts/smoke-web.py
+      - name: Verify Google sign-in plumbing
+        working-directory: .
+        run: python3 scripts/smoke-auth.py
       - name: Deployment summary
         env:
           DEPLOYED_COMMIT: ${{ github.sha }}

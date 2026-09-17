@@ -1,11 +1,14 @@
 mod a2a;
 mod agents;
+pub mod auth;
+pub mod auth_store;
 pub mod availability;
 pub mod booking;
 pub mod booking_api;
 pub mod booking_page;
 pub mod booking_store;
 mod discovery;
+pub mod google_identity;
 pub mod identities;
 pub mod logging;
 pub mod registry;
@@ -130,7 +133,7 @@ async fn catalog(State(state): State<Arc<Identities>>) -> Response {
     records.sort_by(|a, b| a.agent.id.cmp(&b.agent.id));
     let value = json!({"specVersion":"1.0", "host":{"displayName":"Calendar agents"}, "entries":records.iter().map(|r| json!({
         "identifier":r.agent.identifier(),"displayName":r.agent.name,"type":"application/a2a-agent-card+json",
-        "url":r.card_url,"description":if r.agent.live {"Real public availability; no booking."} else {"Mock scheduling agent; no calendar access or booking."},"tags":if r.agent.live {vec!["calendar","availability"]} else {vec!["calendar","mock"]}
+        "url":r.card_url,"description":if r.agent.google_account {"Account-linked agent; calendar access not yet enabled."} else if r.agent.live {"Real public availability; no booking."} else {"Mock scheduling agent; no calendar access or booking."},"tags":if r.agent.google_account {vec!["calendar","account"]} else if r.agent.live {vec!["calendar","availability"]} else {vec!["calendar","mock"]}
     })).collect::<Vec<_>>()});
     // Match the discovery client's bounded document size, without partial results.
     if serde_json::to_vec(&value).map_or(true, |v| v.len() > 64 * 1024) {

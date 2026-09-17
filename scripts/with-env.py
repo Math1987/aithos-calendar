@@ -9,7 +9,8 @@ import sys
 # Legacy test attendee values remain accepted, but booking no longer uses them.
 ALLOWED = {"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
            "AWS_DEFAULT_REGION", "AWS_REGION", "GH_TOKEN", "ANAKIN_API_KEY",
-           "BOOKING_TEST_FIRST_NAME", "BOOKING_TEST_LAST_NAME", "BOOKING_TEST_EMAIL"}
+           "BOOKING_TEST_FIRST_NAME", "BOOKING_TEST_LAST_NAME", "BOOKING_TEST_EMAIL",
+           "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "GOOGLE_OAUTH_REDIRECT_URI"}
 AWS_JSON = {"AccessKeyId": "AWS_ACCESS_KEY_ID", "SecretAccessKey": "AWS_SECRET_ACCESS_KEY",
             "SessionToken": "AWS_SESSION_TOKEN"}
 

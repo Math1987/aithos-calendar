@@ -207,6 +207,11 @@ impl CalendarHandler {
                 vec![Part::text(format!("Hello from {}", agent.name))],
             )));
         }
+        if agent.google_account {
+            return Err(A2AError::unsupported_operation(
+                "Calendar access is not enabled for this account yet",
+            ));
+        }
         let [
             Part {
                 content: PartContent::Data(data),

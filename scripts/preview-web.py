@@ -9,6 +9,7 @@ from pathlib import Path
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--port', type=int, default=3189)
 parser.add_argument('--result', choices=['slot_found', 'no_common_slot', 'error', 'invalid_response'], default='slot_found')
+parser.add_argument('--signed-in', action='store_true')
 parser.add_argument('--pending-once', action='store_true')
 parser.add_argument('--booking-result', choices=['booked','confirmation_required','slot_unavailable','unknown','failed','missing'], default='booked')
 args = parser.parse_args()
@@ -25,6 +26,9 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps(value).encode())
 
     def do_GET(self):
+        if self.path == '/auth/me':
+            self.reply({'id':'test-account', 'name':'Test Person', 'email':'test@example.com','calendar_connected':False} if args.signed_in else {'error':'sign_in_required'}, 200 if args.signed_in else 401)
+            return
         if self.path.startswith('/bookings/'):
             op = bookings.get(self.path.split('/')[-1])
             if op is None:
@@ -49,6 +53,14 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(text.encode())
 
     def do_POST(self):
+        if self.path == '/auth/agent':
+            self.reply({'id':'test-account','identifier':'urn:aithos:calendar:agent:test-account','publication_status':'published','calendar_connected':False,'share_url':origin+'/book/test-account','agent_card_url':'https://registry.aithos.world/v1/agents/test-account/agent-card.json'})
+            return
+        if self.path == '/auth/logout':
+            args.signed_in=False
+            self.send_response(204)
+            self.end_headers()
+            return
         value = json.loads(self.rfile.read(int(self.headers.get('Content-Length', '0'))))
         time.sleep(.3)  # Make the disabled form/loading state observable.
         if self.path == '/agents':
