@@ -40,7 +40,9 @@ fn optional_minutes<'de, D: serde::Deserializer<'de>>(
 }
 // A2A data parts travel through protobuf Struct, whose numbers are doubles.
 // Accept 30 and 30.0 as the same whole-minute value, never truncate fractions.
-fn whole_minutes<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u16, D::Error> {
+pub(crate) fn whole_minutes<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<u16, D::Error> {
     let value = f64::deserialize(deserializer)?;
     if !value.is_finite() || value.fract() != 0.0 || !(0.0..=u16::MAX as f64).contains(&value) {
         return Err(serde::de::Error::custom(

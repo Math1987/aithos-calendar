@@ -1,4 +1,5 @@
 mod a2a;
+pub mod agent;
 mod agents;
 pub mod auth;
 pub mod auth_store;

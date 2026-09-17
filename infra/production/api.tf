@@ -23,6 +23,8 @@ resource "aws_lambda_function" "health" {
   depends_on       = [aws_cloudwatch_log_group.lambda]
   environment {
     variables = {
+      AGENT_STATE_TABLE             = "${local.name}-agent-state"
+      AGENT_QUEUE_URL               = aws_sqs_queue.agent.url
       CALENDAR_PUBLIC_URL           = "https://${local.api_domain}"
       CATALOG_URL                   = "https://${local.api_domain}/.well-known/ai-catalog.json"
       BOOKINGS_TABLE                = aws_dynamodb_table.bookings.name
@@ -98,6 +100,8 @@ resource "aws_apigatewayv2_api_mapping" "api" {
 # Discovery and A2A share the existing function and integration.
 locals {
   agent_routes = {
+    agent_task_create   = { method = "POST", path = "/calendar/tasks", invoke_path = "/calendar/tasks" }
+    agent_task_status   = { method = "GET", path = "/calendar/tasks/{id}", invoke_path = "/calendar/tasks/*" }
     calendar_propose    = { method = "POST", path = "/calendar/proposals", invoke_path = "/calendar/proposals" }
     calendar_book       = { method = "POST", path = "/calendar/bookings", invoke_path = "/calendar/bookings" }
     calendar_disconnect = { method = "POST", path = "/calendar/disconnect", invoke_path = "/calendar/disconnect" }

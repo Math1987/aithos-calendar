@@ -95,3 +95,10 @@ automatically migrated or assigned to a Google account.
 The connected-account Calendar and booking gates are implemented together. See
 [Google Calendar manual acceptance and boundaries](google-calendar-booking.md).
 The live two-account consent and real meeting test remain manual acceptance.
+
+## Autonomous agent V0
+
+Implementation and manual acceptance: [Autonomous agent](autonomous-agent.md).
+Budget admission control is a prerequisite for every paid model invocation.
+The authenticated browser path now delegates a complete booking to a durable
+worker; deterministic defaults remain available when inference is disabled.

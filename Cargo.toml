@@ -36,6 +36,10 @@ aws-sdk-secretsmanager = { version = "=1.117.0", default-features = false, featu
 chrono-tz = "=0.10.4"
 
 openidconnect = { version = "=4.0.1", default-features = false }
+lambda_runtime = "=1.4.0"
+
+aws-sdk-bedrockruntime = { version = "=1.120.0", default-features = false, features = ["rt-tokio", "default-https-client"] }
+aws-sdk-sqs = { version = "=1.94.0", default-features = false, features = ["rt-tokio", "default-https-client"] }
 
 [dev-dependencies]
 registry-core = { package = "aithos-registry-core", version = "=0.2.0" }

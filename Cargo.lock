@@ -73,7 +73,7 @@ dependencies = [
  "axum",
  "chrono",
  "futures",
- "hyper",
+ "hyper 1.11.1",
  "reqwest",
  "serde",
  "serde_json",
@@ -289,6 +289,7 @@ dependencies = [
  "aws-credential-types",
  "aws-sigv4",
  "aws-smithy-async",
+ "aws-smithy-eventstream 0.61.4",
  "aws-smithy-http 0.64.0",
  "aws-smithy-runtime",
  "aws-smithy-runtime-api",
@@ -306,6 +307,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "aws-sdk-bedrockruntime"
+version = "1.120.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "15b8dcf42378ab2d5accac1652cdd059114fb071baf53250ceafb76fcdde347f"
+dependencies = [
+ "aws-credential-types",
+ "aws-runtime",
+ "aws-sigv4",
+ "aws-smithy-async",
+ "aws-smithy-eventstream 0.60.21",
+ "aws-smithy-http 0.62.6",
+ "aws-smithy-json 0.61.9",
+ "aws-smithy-runtime",
+ "aws-smithy-runtime-api",
+ "aws-smithy-types",
+ "aws-types",
+ "bytes",
+ "fastrand",
+ "http 0.2.12",
+ "hyper 0.14.32",
+ "regex-lite",
+ "tracing",
+]
+
+[[package]]
 name = "aws-sdk-dynamodb"
 version = "1.117.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -317,7 +343,7 @@ dependencies = [
  "aws-smithy-async",
  "aws-smithy-http 0.64.0",
  "aws-smithy-json 0.63.1",
- "aws-smithy-observability",
+ "aws-smithy-observability 0.3.0",
  "aws-smithy-runtime",
  "aws-smithy-runtime-api",
  "aws-smithy-schema 0.2.1",
@@ -343,7 +369,7 @@ dependencies = [
  "aws-smithy-async",
  "aws-smithy-http 0.64.0",
  "aws-smithy-json 0.63.1",
- "aws-smithy-observability",
+ "aws-smithy-observability 0.3.0",
  "aws-smithy-runtime",
  "aws-smithy-runtime-api",
  "aws-smithy-schema 0.2.1",
@@ -369,10 +395,34 @@ dependencies = [
  "aws-smithy-async",
  "aws-smithy-http 0.64.0",
  "aws-smithy-json 0.63.1",
- "aws-smithy-observability",
+ "aws-smithy-observability 0.3.0",
  "aws-smithy-runtime",
  "aws-smithy-runtime-api",
  "aws-smithy-schema 0.2.1",
+ "aws-smithy-types",
+ "aws-types",
+ "bytes",
+ "fastrand",
+ "http 0.2.12",
+ "http 1.5.0",
+ "regex-lite",
+ "tracing",
+]
+
+[[package]]
+name = "aws-sdk-sqs"
+version = "1.94.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0894909314920ab2c907110e7f91b9f7a6c826bdc830ccf36079c69af2b82335"
+dependencies = [
+ "aws-credential-types",
+ "aws-runtime",
+ "aws-smithy-async",
+ "aws-smithy-http 0.63.6",
+ "aws-smithy-json 0.62.7",
+ "aws-smithy-observability 0.2.6",
+ "aws-smithy-runtime",
+ "aws-smithy-runtime-api",
  "aws-smithy-types",
  "aws-types",
  "bytes",
@@ -395,7 +445,7 @@ dependencies = [
  "aws-smithy-async",
  "aws-smithy-http 0.64.0",
  "aws-smithy-json 0.63.1",
- "aws-smithy-observability",
+ "aws-smithy-observability 0.3.0",
  "aws-smithy-query",
  "aws-smithy-runtime",
  "aws-smithy-runtime-api",
@@ -417,6 +467,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "31d955e76ff96acd555bf06fa0fa6d5bf9335fa84ae7c64481b20ae61d231f70"
 dependencies = [
  "aws-credential-types",
+ "aws-smithy-eventstream 0.61.4",
  "aws-smithy-http 0.64.0",
  "aws-smithy-runtime-api",
  "aws-smithy-types",
@@ -441,6 +492,50 @@ dependencies = [
  "futures-util",
  "pin-project-lite",
  "tokio",
+]
+
+[[package]]
+name = "aws-smithy-eventstream"
+version = "0.60.21"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "78d8391e65fcea47c586a22e1a41f173b38615b112b2c6b7a44e80cec3e6b706"
+dependencies = [
+ "aws-smithy-types",
+ "bytes",
+ "crc32fast",
+]
+
+[[package]]
+name = "aws-smithy-eventstream"
+version = "0.61.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "80c2051c2f1016fb8e6548dd07b8bc2ac9c3fe583721444b92f515e856d31609"
+dependencies = [
+ "aws-smithy-types",
+ "bytes",
+ "crc32fast",
+]
+
+[[package]]
+name = "aws-smithy-http"
+version = "0.62.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "826141069295752372f8203c17f28e30c464d22899a43a0c9fd9c458d469c88b"
+dependencies = [
+ "aws-smithy-eventstream 0.60.21",
+ "aws-smithy-runtime-api",
+ "aws-smithy-types",
+ "bytes",
+ "bytes-utils",
+ "futures-core",
+ "futures-util",
+ "http 0.2.12",
+ "http 1.5.0",
+ "http-body 0.4.6",
+ "percent-encoding",
+ "pin-project-lite",
+ "pin-utils",
+ "tracing",
 ]
 
 [[package]]
@@ -496,7 +591,7 @@ dependencies = [
  "aws-smithy-types",
  "h2",
  "http 1.5.0",
- "hyper",
+ "hyper 1.11.1",
  "hyper-rustls",
  "hyper-util",
  "pin-project-lite",
@@ -507,6 +602,15 @@ dependencies = [
  "tokio-rustls",
  "tower",
  "tracing",
+]
+
+[[package]]
+name = "aws-smithy-json"
+version = "0.61.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "49fa1213db31ac95288d981476f78d05d9cbb0353d22cdf3472cc05bb02f6551"
+dependencies = [
+ "aws-smithy-types",
 ]
 
 [[package]]
@@ -529,6 +633,15 @@ dependencies = [
  "aws-smithy-runtime-api",
  "aws-smithy-schema 0.2.1",
  "aws-smithy-types",
+]
+
+[[package]]
+name = "aws-smithy-observability"
+version = "0.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a06c2315d173edbf1920da8ba3a7189695827002e4c0fc961973ab1c54abca9c"
+dependencies = [
+ "aws-smithy-runtime-api",
 ]
 
 [[package]]
@@ -562,7 +675,7 @@ dependencies = [
  "aws-smithy-async",
  "aws-smithy-http 0.64.0",
  "aws-smithy-http-client",
- "aws-smithy-observability",
+ "aws-smithy-observability 0.3.0",
  "aws-smithy-runtime-api",
  "aws-smithy-schema 0.2.1",
  "aws-smithy-types",
@@ -713,7 +826,7 @@ dependencies = [
  "http 1.5.0",
  "http-body 1.1.0",
  "http-body-util",
- "hyper",
+ "hyper 1.11.1",
  "hyper-util",
  "itoa",
  "matchit",
@@ -879,14 +992,17 @@ dependencies = [
  "aithos-registry-core",
  "async-trait",
  "aws-config",
+ "aws-sdk-bedrockruntime",
  "aws-sdk-dynamodb",
  "aws-sdk-kms",
  "aws-sdk-secretsmanager",
+ "aws-sdk-sqs",
  "axum",
  "chrono",
  "chrono-tz",
  "futures",
  "lambda_http",
+ "lambda_runtime",
  "openidconnect",
  "p256",
  "rand_core 0.6.4",
@@ -1046,6 +1162,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5ca28b0ae3115b884660db4118d803791fd6756b6e88f39c0f3f7859060d7566"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "crc32fast"
+version = "1.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "01a7799fd6b852db0e61728dde9a204c423b44d689dbd432522543614b490e78"
+dependencies = [
+ "cfg-if",
 ]
 
 [[package]]
@@ -1708,6 +1833,28 @@ dependencies = [
 
 [[package]]
 name = "hyper"
+version = "0.14.32"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41dfc780fdec9373c01bae43289ea34c972e40ee3c9f6b3c8801a35f35586ce7"
+dependencies = [
+ "bytes",
+ "futures-channel",
+ "futures-core",
+ "futures-util",
+ "http 0.2.12",
+ "http-body 0.4.6",
+ "httparse",
+ "httpdate",
+ "itoa",
+ "pin-project-lite",
+ "tokio",
+ "tower-service",
+ "tracing",
+ "want",
+]
+
+[[package]]
+name = "hyper"
 version = "1.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "27b501faa50e7a26c3d3560ca625132f4078a17771f4810baf70475ae48cbe43"
@@ -1735,7 +1882,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33ca68d021ef39cf6463ab54c1d0f5daf03377b70561305bb89a8f83aab66e0f"
 dependencies = [
  "http 1.5.0",
- "hyper",
+ "hyper 1.11.1",
  "hyper-util",
  "rustls",
  "rustls-native-certs",
@@ -1750,7 +1897,7 @@ version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b90d566bffbce6a75bd8b09a05aa8c2cb1fabb6cb348f8840c9e4c90a0d83b0"
 dependencies = [
- "hyper",
+ "hyper 1.11.1",
  "hyper-util",
  "pin-project-lite",
  "tokio",
@@ -1769,7 +1916,7 @@ dependencies = [
  "futures-util",
  "http 1.5.0",
  "http-body 1.1.0",
- "hyper",
+ "hyper 1.11.1",
  "ipnet",
  "libc",
  "percent-encoding",
@@ -2106,7 +2253,7 @@ dependencies = [
  "http 1.5.0",
  "http-body 1.1.0",
  "http-body-util",
- "hyper",
+ "hyper 1.11.1",
  "lambda_runtime",
  "mime",
  "percent-encoding",
@@ -2131,7 +2278,7 @@ dependencies = [
  "http 1.5.0",
  "http-body-util",
  "http-serde",
- "hyper",
+ "hyper 1.11.1",
  "lambda_runtime_api_client",
  "pin-project",
  "serde",
@@ -2155,9 +2302,11 @@ dependencies = [
  "http 1.5.0",
  "http-body 1.1.0",
  "http-body-util",
- "hyper",
+ "hyper 1.11.1",
  "hyper-util",
  "tower",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -3046,7 +3195,7 @@ dependencies = [
  "http 1.5.0",
  "http-body 1.1.0",
  "http-body-util",
- "hyper",
+ "hyper 1.11.1",
  "hyper-rustls",
  "hyper-util",
  "js-sys",
@@ -3845,7 +3994,7 @@ dependencies = [
  "http 1.5.0",
  "http-body 1.1.0",
  "http-body-util",
- "hyper",
+ "hyper 1.11.1",
  "hyper-timeout",
  "hyper-util",
  "percent-encoding",

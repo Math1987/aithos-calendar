@@ -438,3 +438,81 @@ async fn calendar_consent_requires_session_and_rejects_account_switching() {
     );
     server.abort();
 }
+
+#[tokio::test]
+async fn autonomous_task_is_idempotent_and_private_to_the_requester() {
+    use crate::agent::{
+        jobs::{Jobs, Queue},
+        state::MemoryState,
+    };
+    struct NoQueue;
+    #[async_trait::async_trait]
+    impl Queue for NoQueue {
+        async fn enqueue(&self, _: &str, _: i32) -> crate::agent::state::Result<()> {
+            Ok(())
+        }
+    }
+    let (mut auth, _, server) = fixture().await;
+    let cookie = login(&auth, "subject-one").await;
+    let other = login(&auth, "subject-two").await;
+    let (service, a2a) = crate::connected::tests::service_fixture().await;
+    auth.connected = Some(Arc::new(crate::connected::Connected {
+        calendars: service.calendars.clone(),
+        store: service.store.clone(),
+        bookings: service.bookings.clone(),
+        agents: service.agents.clone(),
+        directory: service.directory.clone(),
+        website: auth.website.clone(),
+        jobs: Some(Arc::new(Jobs {
+            store: Arc::new(MemoryState::default()),
+            queue: Arc::new(NoQueue),
+        })),
+    }));
+    let app = crate::agent::jobs::router(auth.clone());
+    let body = json!({"host_url":"https://calendar.test/book/host","request_id":"7d277a85-bb78-46b3-b387-7d03c2874e80"});
+    let request = |origin: &str| {
+        Request::builder()
+            .uri("/calendar/tasks")
+            .method("POST")
+            .header("cookie", &cookie)
+            .header("origin", origin)
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap()
+    };
+    assert_eq!(
+        app.clone()
+            .oneshot(request("https://evil.test"))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    let response = app.clone().oneshot(request(&auth.website)).await.unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let first = value(response).await;
+    assert_eq!(
+        first,
+        value(app.clone().oneshot(request(&auth.website)).await.unwrap()).await
+    );
+    let path = format!("/calendar/tasks/{}", first["id"].as_str().unwrap());
+    for (cookies, status) in [
+        (None, StatusCode::UNAUTHORIZED),
+        (Some(other.as_str()), StatusCode::NOT_FOUND),
+        (Some(cookie.as_str()), StatusCode::OK),
+    ] {
+        let mut req = Request::builder().uri(&path);
+        if let Some(c) = cookies {
+            req = req.header("cookie", c);
+        }
+        let response = app
+            .clone()
+            .oneshot(req.body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), status);
+        assert_eq!(response.headers()["cache-control"], "no-store");
+    }
+    server.abort();
+    a2a.abort();
+}

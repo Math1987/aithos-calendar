@@ -102,6 +102,7 @@ async fn fixture() -> (
     }
     let calendars = Arc::new(FakeCalendars::default());
     let service = Arc::new(Connected {
+        jobs: None,
         calendars: calendars.clone(),
         store: Arc::new(MemoryAuthStore::default()),
         bookings: Arc::new(MemoryBookingStore::default()),
@@ -254,4 +255,96 @@ fn links_cannot_redirect_discovery_to_another_origin() {
         parse_host("https://calendar.test/book/host", "https://calendar.test").unwrap(),
         "host"
     );
+}
+
+#[derive(Default)]
+struct TestQueue(Mutex<Vec<String>>);
+#[async_trait::async_trait]
+impl crate::agent::jobs::Queue for TestQueue {
+    async fn enqueue(&self, id: &str, _: i32) -> crate::agent::state::Result<()> {
+        self.0.lock().unwrap().push(id.into());
+        Ok(())
+    }
+}
+#[tokio::test]
+async fn autonomous_job_recovers_ambiguous_google_write_and_never_books_twice() {
+    use crate::agent::{
+        jobs::{Job, Jobs},
+        state::{MemoryState, StateStore},
+    };
+    let (s, c, t) = fixture().await;
+    let state = Arc::new(MemoryState::default());
+    let queue = Arc::new(TestQueue::default());
+    let jobs = Jobs {
+        store: state.clone(),
+        queue: queue.clone(),
+    };
+    let id = format!("gc{}", "a".repeat(40));
+    let key = format!("job:{id}");
+    state
+        .cas(
+            &key,
+            None,
+            serde_json::to_value(Job {
+                id: id.clone(),
+                host: "host".into(),
+                peer: "guest".into(),
+                status: "queued".into(),
+                created: now(),
+                lease_until: 0,
+                attempts: 0,
+                result: json!({}),
+            })
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    c.lose_insert_response.store(true, Ordering::SeqCst);
+    jobs.process(&id, &s, None).await.unwrap();
+    assert_eq!(
+        state.read(&key).await.unwrap().unwrap().value["status"],
+        "working"
+    );
+    assert_eq!(queue.0.lock().unwrap().len(), 1);
+    unlock_poll(&s, &id).await;
+    jobs.process(&id, &s, None).await.unwrap();
+    jobs.process(&id, &s, None).await.unwrap();
+    let row = state.read(&key).await.unwrap().unwrap();
+    assert_eq!(row.value["status"], "booked");
+    assert_eq!(row.value["result"]["reserved"], true);
+    assert_eq!(c.inserts.load(Ordering::SeqCst), 1);
+    t.abort();
+}
+#[tokio::test]
+async fn learned_duration_survives_a2a_protobuf_round_trip() {
+    let (s, _, t) = fixture().await;
+    for (account, peer) in [("guest", "host"), ("host", "guest")] {
+        let profile = crate::agent::preferences::Profile {
+            preferences: crate::agent::preferences::Preferences {
+                duration_minutes: 45,
+                ..Default::default()
+            },
+            source: "learned".into(),
+            previous_meetings: vec![],
+        };
+        s.store
+            .put(
+                &crate::agent::preferences::key(account, peer),
+                Entry {
+                    value: serde_json::to_value(profile).unwrap(),
+                    expires: now() + 600,
+                    binding: String::new(),
+                },
+            )
+            .await
+            .unwrap();
+    }
+    let p = s.propose("guest", "host").await.unwrap().unwrap();
+    assert_eq!((p.slot.end - p.slot.start).num_minutes(), 45);
+    t.abort();
+}
+
+pub(crate) async fn service_fixture() -> (Arc<Connected>, tokio::task::JoinHandle<()>) {
+    let (s, _, t) = fixture().await;
+    (s, t)
 }

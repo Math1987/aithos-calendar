@@ -62,3 +62,9 @@ for path, payload in [('/calendar/proposals', {'host_url':SITE+'/book/test'}),('
 status,_,_=request('/calendar/disconnect','POST',{'Origin':SITE})
 assert status==401
 print('PASS Calendar proposals, booking and disconnect require an authenticated owner')
+
+status, _, body = request('/calendar/tasks','POST',{'Origin':SITE,'Content-Type':'application/json'}, {'host_url':SITE+'/book/host','request_id':'7d277a85-bb78-46b3-b387-7d03c2874e80'})
+assert status == 401 and json.loads(body)['error'] == 'sign_in_required'
+status, _, body = request('/calendar/tasks/gc'+'a'*40,headers={'Origin':SITE})
+assert status == 401
+print('PASS autonomous tasks require a session')

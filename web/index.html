@@ -197,7 +197,7 @@ const note = '<p class="notice" id="preview-note">We suggest the first shared ti
 
 function home() {
   document.title = 'Calendar — Find a time together';
-  app.innerHTML = `<div class="eyebrow">One link. A time together.</div><h1>Find a time<br>together.</h1><p class="intro">Give your Google account its own calendar agent.</p><section class="panel"><a class="primary" href="/account">Continue with Google →</a><p class="notice">Sign in and get your agent’s link. Calendar access and scheduling for connected accounts are coming next.</p></section><p class="notice">Already using public booking pages? You can still create a link below.</p><section class="panel" aria-label="Create your link">${form('Create link')}<div class="share" id="share" hidden><label for="share-url">Your link to share</label><input id="share-url" readonly><div class="actions"><button class="secondary" id="copy" type="button">Copy link</button><a id="open-link">Open link →</a></div><div id="copy-feedback" class="copy-feedback" role="status"></div></div></section>${note}`;
+  app.innerHTML = `<div class="eyebrow">One link. A time together.</div><h1>Find a time<br>together.</h1><p class="intro">Give your Google account its own calendar agent.</p><section class="panel"><a class="primary" href="/account">Continue with Google →</a><p class="notice">Sign in and get your agent’s link. Your agent finds a shared time and books it automatically.</p></section><p class="notice">Already using public booking pages? You can still create a link below.</p><section class="panel" aria-label="Create your link">${form('Create link')}<div class="share" id="share" hidden><label for="share-url">Your link to share</label><input id="share-url" readonly><div class="actions"><button class="secondary" id="copy" type="button">Copy link</button><a id="open-link">Open link →</a></div><div id="copy-feedback" class="copy-feedback" role="status"></div></div></section>${note}`;
   document.querySelector('#booking-form').addEventListener('submit', event => {
     event.preventDefault();
     const url = document.querySelector('#booking-url').value.trim();
@@ -435,7 +435,7 @@ async function accountPage(sharedHost) {
   };
   const loginError = accountMessages[params.get('error')];
   if(params.has('error')) history.replaceState(null,'',location.pathname+(returnHost?'?host='+encodeURIComponent(returnHost):''));
-  app.innerHTML='<div class="eyebrow">Your calendar agent</div><h1>A time together.<br>Simply agreed.</h1><p class="intro">Connect Google Calendar, find a shared time, and confirm one meeting in both calendars.</p><section class="panel"><div id="account-content"><p>Checking your session…</p></div><div id="agent-state" class="share"></div><div id="calendar-content" class="share"></div><div id="status" class="status" role="status" aria-live="polite" hidden></div></section>';
+  app.innerHTML='<div class="eyebrow">Your calendar agent</div><h1>A time together.<br>Simply agreed.</h1><p class="intro">Connect Google Calendar and let your agent arrange a meeting in both calendars.</p><section class="panel"><div id="account-content"><p>Checking your session…</p></div><div id="agent-state" class="share"></div><div id="calendar-content" class="share"></div><div id="status" class="status" role="status" aria-live="polite" hidden></div></section>';
   const content=document.querySelector('#account-content');
   let profile;
   try {profile=await authRequest('/auth/me');}
@@ -498,58 +498,52 @@ async function accountPage(sharedHost) {
       note.textContent='Allow access to your primary calendar’s availability and permission to create and accept meetings. Sharing your agent’s link lets signed-in visitors book a free time. Both participants’ Google email addresses will be visible on the meeting.';
       area.append(note,connectLink());return;
     }
-    note.textContent='Google Calendar connected. 30-minute meetings, weekdays 09:00–18:00 in each calendar’s time zone. We start tomorrow in the host’s time zone and search the next 30 days.';
-    const reconnect=connectLink('Reconnect Calendar');reconnect.className='secondary';
+    note.textContent='Your agent reads your primary calendar’s meeting history to learn useful habits, finds a shared time, and books automatically. It uses AWS Bedrock for analysis when available. Defaults: 30 minutes, weekdays 09:00–18:00, excluding 12:00–14:00, from tomorrow within 30 days. Both participants see each other’s Google email address.';
     const disconnect=document.createElement('button');disconnect.className='secondary';disconnect.textContent='Disconnect Calendar';
     disconnect.onclick=async()=>{disconnect.disabled=true;try{await authRequest('/calendar/disconnect','POST');profile.calendar_connected=false;showCalendar();}catch(e){disconnect.disabled=false;fail(e);}};
     const form=document.createElement('form');
     const label=document.createElement('label');label.htmlFor='host-link';label.textContent='The other person’s agent link';
     const input=document.createElement('input');input.id='host-link';input.type='url';input.required=true;input.placeholder=WEBSITE+'/book/…';input.value=returnHost?WEBSITE+'/book/'+returnHost:'';
-    const find=document.createElement('button');find.type='submit';find.textContent='Find a time';
-    form.append(label,input,find);area.append(note,reconnect,disconnect,form);
-    const storageKey='calendar-connected-booking:'+profile.id;
+    const submit=document.createElement('button');submit.type='submit';submit.textContent='Organize and book';
+    form.append(label,input,submit);area.append(note,disconnect,form);
+    const storageKey='calendar-agent-task:'+profile.id;
     let active=null,busy=false;
-    try{active=JSON.parse(localStorage.getItem(storageKey));if(typeof active?.id!=='string'||!/^gc[a-f0-9]{40}$/.test(active.id)) active=null;}catch{active=null;}
-    if(/^gc[a-f0-9]{40}$/.test(profile.pending_booking_id||''))active={id:profile.pending_booking_id};
+    try{active=JSON.parse(localStorage.getItem(storageKey));if(!active?.request_id||!active?.host_url)active=null;}catch{}
     const remember=value=>{active=value;try{if(value)localStorage.setItem(storageKey,JSON.stringify(value));else localStorage.removeItem(storageKey);}catch{}};
-    const lock=value=>{busy=value;find.disabled=value||!!active;input.disabled=value||!!active;disconnect.disabled=value||!!active;};
-    const when=slot=>new Intl.DateTimeFormat(undefined,{dateStyle:'full',timeStyle:'short'}).format(new Date(slot.start))+' · 30 minutes · '+Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const details=()=>{if(active){const p=document.createElement('p');p.className='notice';p.textContent='Booking reference: '+active.id;document.querySelector('#status').append(p);}};
-    async function confirm() {
-      if(busy||!active)return;lock(true);loading('Confirming your meeting…');
+    const lock=value=>{busy=value;submit.disabled=value||!!active;input.disabled=value||!!active;disconnect.disabled=value||!!active;};
+    const when=slot=>new Intl.DateTimeFormat(undefined,{dateStyle:'full',timeStyle:'short'}).format(new Date(slot.start))+' · '+Math.round((new Date(slot.end)-new Date(slot.start))/60000)+' minutes · '+Intl.DateTimeFormat().resolvedOptions().timeZone;
+    function previousMeetings(result) {
+      const items=result.previous_meetings;if(!Array.isArray(items)||!items.length)return;
+      const details=document.createElement('details');const title=document.createElement('summary');title.textContent='Previous meetings with this person ('+items.length+')';details.append(title);
+      const list=document.createElement('ul');for(const meeting of items){const li=document.createElement('li');li.textContent=meeting.title+' — '+new Intl.DateTimeFormat(undefined,{dateStyle:'medium'}).format(new Date(meeting.start));list.append(li);}details.append(list);document.querySelector('#status').append(details);
+    }
+    async function follow() {
+      if(busy||!active)return;lock(true);loading('Your agents are finding and booking a time…');
       try {
-        for(let attempt=0;attempt<20;attempt++) {
-          const result=await authRequest('/calendar/bookings','POST',{id:active.id});
-          if(result.id!==active.id) throw new Error('invalid_booking');
-          if(result.status==='booked' && result.reserved===true) {
-            outcome('Your meeting is booked',when(result.slot)+'. Confirmed in both primary calendars.','success');remember(null);return;
-          }
-          if(['slot_unavailable','failed'].includes(result.status)) {remember(null);outcome('That time is no longer available','Find another time and confirm again.');return;}
-          if(result.status==='outcome_unknown') {
-            outcome('The booking needs checking','Its outcome is not confirmed. Check both calendars and use “Check booking” to reconcile this same meeting.');details();break;
-          }
-          loading(result.status==='confirming_guest'?'Meeting created. Waiting for confirmation in your calendar…':'Checking the booking in progress…');
+        if(!active.id){const r=await authRequest('/calendar/tasks','POST',{host_url:active.host_url,request_id:active.request_id});remember({...active,id:r.id});}
+        for(let attempt=0;attempt<100;attempt++) {
+          const task=await authRequest('/calendar/tasks/'+encodeURIComponent(active.id));
+          if(task.id!==active.id)throw new Error('invalid_task');
+          const result=task.result||{};
+          if(task.status==='booked'&&result.reserved===true){outcome('Your meeting is booked',when(result.slot)+'. Confirmed in both primary calendars. '+(result.explanation||''),'success');previousMeetings(result);remember(null);profile.pending_booking_id=null;return;}
+          if(task.status==='no_common_slot'){outcome('No shared time found','No available time fits both calendars in the next 30 days.');previousMeetings(result);remember(null);return;}
+          if(task.status==='failed'){outcome('The meeting could not be arranged',accountMessages[result.error]||'No booking was confirmed. Please try again later.');previousMeetings(result);remember(null);return;}
+          if(task.status==='needs_attention'){outcome('The booking needs checking','We could not confirm the outcome. Check both calendars before arranging another meeting. Reference: '+task.id);return;}
           await new Promise(resolve=>setTimeout(resolve,3000));
         }
-        if(document.querySelector('#status').classList.contains('loading')) {outcome('Confirmation is still pending','Check this booking again shortly. If Google sent an invitation, you can also accept it in your calendar.');details();}
-      } catch(error) {
-        if(['proposal_expired','slot_no_longer_available','calendar_connection_required','calendar_reconnect_required','booking_already_in_progress','invalid_booking'].includes(error.message)) {remember(null);fail(error);return;}
-        outcome('Confirmation needs checking','We could not obtain the final status. Check this same booking before trying another time.');details();
-      } finally {lock(false);}
-      if(active){const check=document.createElement('button');check.textContent='Check booking';check.onclick=confirm;document.querySelector('#status').append(check);}
+        outcome('Your agent is still working','You can leave this page and return to check the same request.');
+      }catch(error){outcome('Your request needs checking','We could not read its status. Resume this same request to avoid booking twice. '+(accountMessages[error.message]||''));}
+      finally{lock(false);}
+      if(active){const retry=document.createElement('button');retry.textContent='Check progress';retry.onclick=follow;document.querySelector('#status').append(retry);}
     }
-    form.onsubmit=async event=>{
-      event.preventDefault();if(busy||active)return;lock(true);loading('Finding a time that works for both of you…');
-      try {
-        const result=await authRequest('/calendar/proposals','POST',{host_url:input.value.trim()});
-        if(result.status==='no_common_slot'){outcome('No shared time found','There is no common 30-minute window in the next 30 days.');return;}
-        if(result.status!=='slot_found'||!result.proposal?.slot)throw new Error('invalid_booking');
-        const proposal=result.proposal;
-        outcome('A time that works for both of you',when(proposal.slot)+'. Confirm to create a meeting, invite you, and accept it in your calendar. Both participants will see each other’s Google email address.','success');
-        const book=document.createElement('button');book.textContent='Confirm booking';book.onclick=()=>{if(busy||active)return;book.disabled=true;remember({id:proposal.id});confirm();};document.querySelector('#status').append(book);
-      } catch(error){fail(error);} finally{lock(false);}
-    };
-    if(active){lock(false);outcome('A booking needs checking','Resume the existing booking to verify its result.');details();const check=document.createElement('button');check.textContent='Check booking';check.onclick=confirm;document.querySelector('#status').append(check);}
+    form.onsubmit=event=>{event.preventDefault();if(busy||active)return;remember({request_id:crypto.randomUUID(),host_url:input.value.trim()});follow();};
+    if(active){input.value=active.host_url;follow();}
+    else if(profile.pending_booking_id){
+      submit.disabled=true;const check=document.createElement('button');check.type='button';check.textContent='Check existing booking';
+      check.onclick=async()=>{check.disabled=true;try{const result=await authRequest('/calendar/bookings','POST',{id:profile.pending_booking_id});if(result.status==='booked'&&result.reserved){outcome('Your meeting is booked',when(result.slot),'success');profile.pending_booking_id=null;submit.disabled=false;check.remove();}else{outcome('The booking is still being checked','Reference: '+profile.pending_booking_id);}}catch(e){fail(e);}finally{check.disabled=false;}};
+      area.append(check);check.click();
+    }
+
   }
   await prepare();
 }

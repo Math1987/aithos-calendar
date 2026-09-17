@@ -43,7 +43,20 @@ async fn main() -> Result<(), Error> {
             aws_sdk_dynamodb::Client::new(&config),
             std::env::var("BOOKINGS_TABLE")?,
         ));
+        let agent_state: std::sync::Arc<dyn calendar::agent::state::StateStore> =
+            std::sync::Arc::new(calendar::agent::state::DynamoState {
+                client: aws_sdk_dynamodb::Client::new(&config),
+                table: std::env::var("AGENT_STATE_TABLE")?,
+            });
+        let jobs = std::sync::Arc::new(calendar::agent::jobs::Jobs {
+            store: agent_state.clone(),
+            queue: std::sync::Arc::new(calendar::agent::jobs::SqsQueue {
+                client: aws_sdk_sqs::Client::new(&config),
+                url: std::env::var("AGENT_QUEUE_URL")?,
+            }),
+        });
         let connected = std::sync::Arc::new(calendar::connected::Connected {
+            jobs: Some(jobs.clone()),
             calendars: std::sync::Arc::new(calendar::google_calendar::GoogleCalendar::new(
                 private_store.clone(),
                 aws_sdk_kms::Client::new(&config),
@@ -62,6 +75,50 @@ async fn main() -> Result<(), Error> {
             )?),
             website: std::env::var("CALENDAR_WEBSITE_URL")?,
         });
+        if std::env::var("CALENDAR_WORKER").as_deref() == Ok("true") {
+            let model = std::sync::Arc::new(calendar::agent::model::Model::new(
+                &config,
+                calendar::agent::budget::Budget { store: agent_state },
+            ));
+            lambda_runtime::run(lambda_runtime::service_fn(
+                move |event: lambda_runtime::LambdaEvent<serde_json::Value>| {
+                    let jobs = jobs.clone();
+                    let service = connected.clone();
+                    let model = model.clone();
+                    async move {
+                        // Operator-only Lambda invocation, synthetic data, same global budget.
+                        // There is no HTTP route for this diagnostic.
+                        if event.payload["operation"] == "verify_model" {
+                            let result=model.analyze(serde_json::json!({"timezone":"Europe/Paris","observations":[]})).await;
+                            return Ok::<_,lambda_runtime::Error>(match result {
+                                Ok(value)=>serde_json::json!({"status":"model_available","analysis":value}),
+                                Err(code)=>serde_json::json!({"status":"deterministic_fallback","code":code}),
+                            });
+                        }
+                        let mut failures = vec![];
+                        if let Some(records) = event.payload["Records"].as_array() {
+                            for record in records {
+                                let result = match record["body"].as_str() {
+                                    Some(id) => jobs.process(id, &service, Some(&model)).await,
+                                    None => Err("invalid_task"),
+                                };
+                                if let Err(code) = result {
+                                    tracing::warn!(event = "agent_job_retry", code);
+                                    failures.push(
+                                        serde_json::json!({"itemIdentifier":record["messageId"]}),
+                                    );
+                                }
+                            }
+                        }
+                        Ok::<_, lambda_runtime::Error>(
+                            serde_json::json!({"batchItemFailures":failures}),
+                        )
+                    }
+                },
+            ))
+            .await?;
+            return Ok(());
+        }
         let app = calendar::app_with_connector(
             &base_url,
             &catalog_url,
@@ -94,7 +151,8 @@ async fn main() -> Result<(), Error> {
         };
         let app = app
             .merge(calendar::auth::router(auth.clone()))
-            .merge(calendar::connected::router(auth));
+            .merge(calendar::connected::router(auth.clone()))
+            .merge(calendar::agent::jobs::router(auth));
         if let (Ok(table), Ok(secret_id)) = (
             std::env::var("BOOKINGS_TABLE"),
             std::env::var("ANAKIN_SECRET_ID"),

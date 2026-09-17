@@ -9,7 +9,7 @@ for path in ['/', '/book/unknown-agent', '/help/google-booking-page', '/account'
         html = response.read().decode()
         assert response.status == 200 and '<script type="module">' in html and 'Find a time<br>together.' in html
     print('PASS direct web route', path)
-for path, headers in [('/bookings', 'content-type'), ('/agents', 'content-type'), ('/a2a', 'content-type,a2a-version')]:
+for path, headers in [('/calendar/tasks', 'content-type'), ('/bookings', 'content-type'), ('/agents', 'content-type'), ('/a2a', 'content-type,a2a-version')]:
     request = urllib.request.Request(api + path, method='OPTIONS', headers={
         'Origin': site, 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': headers,
     })

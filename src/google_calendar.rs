@@ -25,6 +25,13 @@ pub struct Event {
 }
 #[async_trait]
 pub trait Calendars: Send + Sync {
+    async fn history(
+        &self,
+        _id: &str,
+        _peer_email: &str,
+    ) -> Result<(String, Vec<crate::agent::preferences::Observation>)> {
+        Err("history_unavailable")
+    }
     async fn connected(&self, id: &str) -> Result<bool>;
     async fn connect(
         &self,
@@ -229,6 +236,109 @@ impl GoogleCalendar {
 }
 #[async_trait]
 impl Calendars for GoogleCalendar {
+    async fn history(
+        &self,
+        id: &str,
+        peer_email: &str,
+    ) -> Result<(String, Vec<crate::agent::preferences::Observation>)> {
+        let token = self.token(id).await?;
+        let now: DateTime<Utc> = std::time::SystemTime::now().into();
+        let start = now
+            .checked_sub_months(chrono::Months::new(9))
+            .ok_or("invalid_window")?;
+        let end = now
+            .checked_add_months(chrono::Months::new(3))
+            .ok_or("invalid_window")?;
+        let mut page = String::new();
+        let mut events = Vec::new();
+        for _ in 0..8 {
+            let mut request = self
+                .http
+                .get(format!("{}/calendars/primary/events", self.api))
+                .bearer_auth(&token)
+                .query(&[
+                    ("timeMin", start.to_rfc3339()),
+                    ("timeMax", end.to_rfc3339()),
+                    ("singleEvents", "true".into()),
+                    ("maxResults", "1000".into()),
+                    ("orderBy", "startTime".into()),
+                ]);
+            if !page.is_empty() {
+                request = request.query(&[("pageToken", &page)]);
+            }
+            let v = Self::response(request.send().await).await?;
+            let timezone = v["timeZone"]
+                .as_str()
+                .ok_or("invalid_calendar_response")?
+                .to_owned();
+            for e in v["items"].as_array().ok_or("invalid_calendar_response")? {
+                if e["status"] == "cancelled"
+                    || e["transparency"] == "transparent"
+                    || e["eventType"].as_str().is_some_and(|t| t != "default")
+                {
+                    continue;
+                }
+                let organized = e["organizer"]["self"] == true;
+                let attendees = e["attendees"].as_array();
+                if !organized
+                    && !attendees.is_some_and(|a| {
+                        a.iter()
+                            .any(|v| v["self"] == true && v["responseStatus"] == "accepted")
+                    })
+                {
+                    continue;
+                }
+                let Some(start) = e["start"]["dateTime"]
+                    .as_str()
+                    .and_then(|s| s.parse::<DateTime<Utc>>().ok())
+                else {
+                    continue;
+                };
+                let Some(end) = e["end"]["dateTime"]
+                    .as_str()
+                    .and_then(|s| s.parse::<DateTime<Utc>>().ok())
+                else {
+                    continue;
+                };
+                let Some(event_id) = e["id"].as_str() else {
+                    continue;
+                };
+                events.push(crate::agent::preferences::Observation {
+                    id: event_id.into(),
+                    title: e["summary"]
+                        .as_str()
+                        .unwrap_or("Untitled meeting")
+                        .chars()
+                        .take(120)
+                        .collect(),
+                    description: e["description"]
+                        .as_str()
+                        .unwrap_or("")
+                        .chars()
+                        .take(180)
+                        .collect(),
+                    start,
+                    end,
+                    organized,
+                    peer: attendees.is_some_and(|a| {
+                        a.iter().any(|v| {
+                            v["email"]
+                                .as_str()
+                                .is_some_and(|s| s.eq_ignore_ascii_case(peer_email))
+                                && v["responseStatus"] != "declined"
+                        })
+                    }),
+                    series: e["recurringEventId"].as_str().map(str::to_owned),
+                });
+            }
+            match v["nextPageToken"].as_str() {
+                Some(p) => page = p.into(),
+                None => return Ok((timezone, events)),
+            }
+        }
+        // Do not infer preferences from a silently incomplete oldest-first history.
+        Err("history_too_large")
+    }
     async fn connected(&self, id: &str) -> Result<bool> {
         Ok(self
             .store

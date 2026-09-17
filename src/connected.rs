@@ -19,6 +19,7 @@ use serde_json::{Value, json};
 use std::{sync::Arc, time::Duration};
 
 pub struct Connected {
+    pub jobs: Option<Arc<crate::agent::jobs::Jobs>>,
     pub calendars: Arc<dyn Calendars>,
     pub store: Arc<dyn AuthStore>,
     pub bookings: Arc<dyn BookingStore>,
@@ -27,7 +28,7 @@ pub struct Connected {
     pub website: String,
 }
 #[derive(Clone, Serialize, Deserialize)]
-struct Proposal {
+pub(crate) struct Proposal {
     id: String,
     host: String,
     peer: String,
@@ -97,8 +98,10 @@ impl Connected {
                 let window: Window =
                     serde_json::from_value(data["window"].clone()).map_err(|_| "invalid_window")?;
                 let a = self.calendars.availability(tenant, &window).await?;
+                let profile =
+                    crate::agent::preferences::cached(self.store.as_ref(), tenant, caller).await;
                 Ok(
-                    json!({"status":"availability","agent":format!("urn:aithos:calendar:agent:{tenant}"),"availability":a}),
+                    json!({"status":"availability","agent":format!("urn:aithos:calendar:agent:{tenant}"),"availability":a,"preferences":profile.preferences}),
                 )
             }
             Some("commit_booking") => {
@@ -146,6 +149,15 @@ impl Connected {
         }
     }
     async fn propose(&self, peer: &str, host: &str) -> Result<Option<Proposal>, &'static str> {
+        self.propose_with_id(peer, host, &format!("gc{}", &digest(&random())[..40]))
+            .await
+    }
+    pub(crate) async fn propose_with_id(
+        &self,
+        peer: &str,
+        host: &str,
+        id: &str,
+    ) -> Result<Option<Proposal>, &'static str> {
         if host == peer {
             return Err("same_account");
         }
@@ -184,22 +196,23 @@ impl Connected {
         let host_availability: Availability =
             serde_json::from_value(remote["availability"].clone())
                 .map_err(|_| "invalid_peer_response")?;
-        let tz: chrono_tz::Tz = host_availability
-            .timezone
-            .parse()
-            .map_err(|_| "invalid_calendar_timezone")?;
-        let today = window.start.with_timezone(&tz).date_naive();
-        let host_slots: Vec<_> = host_availability
-            .slots
-            .into_iter()
-            .filter(|s| s.start.with_timezone(&tz).date_naive() > today)
-            .collect();
-        let slot = crate::scheduling::first_common_slot(&host_slots, &own.slots, 30);
+        let own_profile = crate::agent::preferences::cached(self.store.as_ref(), peer, host).await;
+        let host_preferences =
+            serde_json::from_value(remote["preferences"].clone()).unwrap_or_default();
+        let slot = crate::agent::preferences::select(
+            &host_availability.slots,
+            &own.slots,
+            &host_availability.timezone,
+            &own.timezone,
+            &host_preferences,
+            &own_profile.preferences,
+            window.start,
+        );
         let Some(slot) = slot else {
             return Ok(None);
         };
         let proposal = Proposal {
-            id: format!("gc{}", &digest(&random())[..40]),
+            id: id.into(),
             host: host.into(),
             peer: peer.into(),
             slot,
@@ -207,7 +220,7 @@ impl Connected {
             expires: now() + 900,
         };
         self.store
-            .create(
+            .put(
                 &format!("proposal:{}", proposal.id),
                 Entry {
                     value: serde_json::to_value(&proposal).unwrap(),
@@ -219,7 +232,7 @@ impl Connected {
             .map_err(|_| "storage_unavailable")?;
         Ok(Some(proposal))
     }
-    async fn confirm(&self, peer: &str, id: &str) -> Result<Value, &'static str> {
+    pub(crate) async fn confirm(&self, peer: &str, id: &str) -> Result<Value, &'static str> {
         if id.len() != 42
             || !id.starts_with("gc")
             || !id[2..].bytes().all(|b| b.is_ascii_hexdigit())
@@ -496,4 +509,4 @@ async fn disconnect(State(s): State<Arc<Auth>>, headers: HeaderMap) -> Response 
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
