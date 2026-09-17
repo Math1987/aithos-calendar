@@ -2,12 +2,11 @@
 
 ## Scope
 
-The service exposes health, persistent public page agents, mock A2A collaboration,
-and a minimal browser test. DynamoDB stores signed identities; Aithos publishes
-the cards. Production remains mocked until the live availability gate is deployed and cards
-are upgraded. The development branch implements real reads and an operator-only
-Anakin transport. See [gate 5](live-browser-test.md). See the
-[browser guide](browser-test.md) and [public onboarding](public-onboarding.md).
+The service exposes health, persistent public page agents, real A2A availability
+comparison, and a minimal browser flow. DynamoDB stores signed identities; Aithos
+publishes the cards. Gate 5 and the two existing page-card upgrades are deployed.
+Anakin remains an operator-only transport; the website does not book. See the
+[live browser guide](live-browser-test.md) and [public onboarding](public-onboarding.md).
 
 - Repository: https://github.com/Math1987/aithos-calendar (public).
 - AWS: account `128066560720`, region `eu-west-3` (Paris).
@@ -32,6 +31,13 @@ The helper runs commands without sourcing arbitrary shell code or printing value
 python3 scripts/with-env.py aws sts get-caller-identity
 python3 scripts/with-env.py gh run list --repo Math1987/aithos-calendar --limit 3
 ```
+
+The helper also accepts AWS credential-process JSON pasted directly into `.env`
+(`AccessKeyId`, `SecretAccessKey`, `SessionToken`, with optional `Version` and
+`Expiration`), followed by normal `GH_TOKEN=...` and `ANAKIN_API_KEY=...` lines.
+Keep only one AWS credential set. It parses data without executing shell code and
+never prints credential values. If the JSON does not include a region, set
+`AWS_DEFAULT_REGION=eu-west-3` in your shell or as a dotenv entry.
 
 An expired local AWS session needs renewing; it does not affect GitHub's OIDC
 deployments. Never commit `.env`, copy its values into GitHub variables, or expose
@@ -183,3 +189,13 @@ The current route is anonymous `POST /agents` with `booking_page_url`. The three
 `ADMIN_AWS_ACCOUNT_ID` environment setting. DynamoDB IAM policies are unchanged.
 Repost the same URL to resume a pending publication; never regenerate a tenant.
 See [public onboarding](public-onboarding.md) for current commands.
+
+## Live availability deployment
+
+Deployed commit `e83e390` via [Actions run 35180158681](https://github.com/Math1987/aithos-calendar/actions/runs/35180158681).
+Lambda timeout is now 25 seconds and API integration timeout is 29 seconds.
+The metadata route is `GET /agents/{tenant}/schedule`. The two page agents use
+card version 0.4.0; legacy fixture-only agents remain mocked and cannot supply
+availability to live agents. No runtime permission to read signing keys was added.
+Registry readbacks were cached for up to 60 seconds during upgrade; replaying the
+same migration completed both updates without changing IDs or creating agents.

@@ -1,7 +1,7 @@
 # Real availability and booking provider checks
 
-Status: implementation in progress, September 17, 2026. Production still runs
-the verified mock A2A/browser flow. These adapters are not yet wired into it.
+Status: September 17, 2026. Real Google availability is deployed through A2A and
+the browser. Anakin remains an operator-only adapter; the website does not book.
 
 ## Availability: our Rust HTTP reader
 
@@ -155,8 +155,8 @@ No LLM is needed for this deterministic provider integration.
   directions, without prompting for attendee details. Both selected the offered
   30-minute slot starting at `2026-09-18T07:00:00Z`.
 - Preparation printed no contact values and made no Anakin request. No appointment
-  was booked. The production website remains on the mock flow until the remaining
-  integration above is completed.
+  was booked. At that initial check the website still used mocks; the live
+  availability gate has since been deployed (see the browser verification below).
 
 Gate 5 now wires the reader into A2A and the browser; booking submission remains
 operator-only. No Anakin credential is loaded by the Lambda in this gate.

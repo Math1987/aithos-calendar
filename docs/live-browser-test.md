@@ -110,5 +110,18 @@ real Google pages for owner acceptance.
 - Isolated browser checks verified creation of a share link, meeting metadata,
   loading state, a successful match, no match, and rejection of the same page.
 - JavaScript syntax and Terraform validation passed.
-- Production deployment/card migration remain pending: operator AWS credentials
-  returned `ExpiredToken`. The existing production website remains on mocks.
+- Deployed `e83e390` through [Actions run 35180158681](https://github.com/Math1987/aithos-calendar/actions/runs/35180158681); every deployment check passed.
+- Both page agents were migrated to 0.4.0 while preserving tenant, registry ID,
+  signing key and shared URL. A subsequent migration check found nothing to do.
+  Public registry readbacks initially served cached 0.3.0 cards; retrying after
+  the 60-second cache lifetime completed the exact same updates safely.
+- Production browser verified home → existing shared link → actual title
+  “Become a Design Partner”, 30 minutes → visitor page → common slot
+  `2026-09-18T07:00:00Z–07:30:00Z` (09:00–09:30 Europe/Paris).
+  Submitting the same page produced the expected error.
+- Post-migration production smoke checks passed for both directions, missing
+  tenants/peer, invalid onboarding, direct browser routes and CORS.
+  Forward trace: `01a0ad8d-7e10-717e-a61f-23ab912ad85c`;
+  reverse trace: `01a0ad8d-80ab-77a0-aca0-019ef940f183`.
+- No appointment was booked. Owner acceptance of controlled busy events, unequal
+  durations and no-overlap calendars remains the next manual check.

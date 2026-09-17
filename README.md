@@ -5,22 +5,21 @@ public Google booking-page link, and find a suitable appointment automatically.
 
 ## Current status
 
-The Rust service hosts persistent booking-page agents through one shared
-A2A 1.0 JSON-RPC endpoint. Agent Cards are signed and published on Aithos; Calendar's
-dynamic AI Catalog references their registry URLs. Page agents and existing mock peers discovered each other and matched mock
-availability in both directions on September 16, 2026.
-Public onboarding accepts a Google booking-page URL and reuses its existing agent.
-See [public onboarding](docs/public-onboarding.md) for the current manual test.
-The [website](https://calendar.aithos.world) provides a minimal browser test: create
-a sharing link, paste a second booking page, and display the mock A2A result.
-No appointment is booked. See the [browser guide](docs/browser-test.md).
-Repository: https://github.com/Math1987/aithos-calendar (public).
+The Rust service hosts persistent booking-page agents through one shared A2A 1.0
+JSON-RPC endpoint. Signed AgentCards are published on Aithos, and the dynamic AI
+Catalog references their registry URLs. Public onboarding creates or reuses the
+agent for a Google booking-page URL.
 
-Gate 5 is implemented on `codex/live-calendar-providers`: real Google availability,
-actual meeting metadata, deterministic host-slot selection through A2A, and browser
-success/no-match/error states. Deployment and the existing signed-card upgrade are
-pending renewed operator AWS credentials. See the [manual gate 5 test](docs/live-browser-test.md).
-The first usable booking version will not require an LLM; Bedrock is optional later.
+Gate 5 is deployed: the [website](https://calendar.aithos.world) displays real
+meeting metadata and finds a complete host appointment covered by both pages'
+advertised availability through A2A. The two existing test-page agents were
+upgraded to card version 0.4.0 without changing their identities or shared links.
+See the [manual gate 5 test](docs/live-browser-test.md).
+
+No appointment is booked by the website yet. The next gate verifies and connects
+Anakin booking with durable status. The first usable version requires no LLM;
+Bedrock remains optional for a future conversational interface.
+Repository: https://github.com/Math1987/aithos-calendar (public).
 
 ## Documentation
 
@@ -52,6 +51,6 @@ Terraform state, and generated artifacts out of Git.
 | Primary region | `eu-west-3` (profile configuration) |
 | Environment | Production only |
 
-Real Google availability and the Anakin transport are being developed behind
-separate adapters; production still uses mock availability and performs no
-booking. LLM integration has not started. The first version requires no user authentication.
+Real Google availability and the operator-only Anakin transport use separate
+adapters. Public page onboarding requires no user authentication; a pasted page
+does not prove ownership. The deployed website reads availability and does not book.
