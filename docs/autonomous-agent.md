@@ -117,9 +117,11 @@ closed and scheduling uses defaults until a reviewed deployment updates the tari
 The ledger must NEVER be reset to make the model available. Restoring an old backup
 also requires reconciliation of all later charges before re-enabling inference.
 
-Bootstrap owns the protected table and its one-time seed. Terraform ignores seed
-value changes so deployments do not reset spending. Runtime roles cannot delete
-the ledger; API and deployment roles cannot invoke Bedrock. API writes are restricted
+Bootstrap owns the protected table. Its initial seed was written once during
+rollout, then detached from Terraform state without deleting the live record.
+Routine bootstrap applies therefore cannot recreate a missing ledger at zero. A
+missing record requires operator reconciliation before any manual recovery; it
+never means a fresh budget. Runtime roles cannot delete the ledger; API and deployment roles cannot invoke Bedrock. API writes are restricted
 to `job:*` keys. Only the worker can call the one allowed inference profile.
 
 ## Bedrock account setup
@@ -199,3 +201,7 @@ counts only; it does not call Bedrock or book a meeting.
 - Production commit `573d064`: [CI run](https://github.com/Math1987/aithos-calendar/actions/runs/35211394470)
   passed all 74 tests and deployment smoke checks. The worker is Active with a
   successful update, and its SQS mapping is Enabled with maximum concurrency two.
+- Budget seed ownership was detached with a reviewed Terraform `forget` action
+  (`destroy = false`). The live DynamoDB item was identical before and after,
+  and the seed is absent from Terraform state: routine bootstrap cannot reset a
+  missing record by creating a new zero-value seed.

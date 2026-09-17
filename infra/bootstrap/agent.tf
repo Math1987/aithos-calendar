@@ -1,5 +1,5 @@
-# The ledger is initialized once by the bootstrap administrator. Application and
-# deployment roles cannot delete it; ignore_changes prevents deploy-time resets.
+# Application and deployment roles cannot delete the protected state table.
+# The live budget record is deliberately not managed by Terraform (see below).
 resource "aws_dynamodb_table" "agent_state" {
   name                        = "${local.name}-agent-state"
   billing_mode                = "PAY_PER_REQUEST"
@@ -17,14 +17,12 @@ resource "aws_dynamodb_table" "agent_state" {
   point_in_time_recovery { enabled = true }
   lifecycle { prevent_destroy = true }
 }
-resource "aws_dynamodb_table_item" "budget_seed" {
-  table_name = aws_dynamodb_table.agent_state.name
-  hash_key   = "id"
-  item       = jsonencode({ id = { S = "budget" }, revision = { N = "0" }, record = { S = jsonencode({ month = 0, spent = 0, held = {} }) } })
-  lifecycle {
-    prevent_destroy = true
-    ignore_changes  = [item]
-  }
+# The ledger was initialized once during first rollout. Forget its Terraform
+# ownership WITHOUT deleting it: otherwise a missing item could be recreated at
+# zero by a routine bootstrap apply. Missing state must disable inference.
+removed {
+  from = aws_dynamodb_table_item.budget_seed
+  lifecycle { destroy = false }
 }
 resource "aws_iam_role" "agent_worker" {
   name               = "${local.name}-agent-worker"
