@@ -1,10 +1,13 @@
 # Technical architecture
 
-Status: the Rust foundation, dynamic identities and live availability browser gate
-are deployed. Existing page cards are upgraded; owner acceptance is next.
-See [gate 5](live-browser-test.md).
-The first usable release uses deterministic scheduling and booking, without an LLM.
-The sections below describe the foundation; the A2A section records its extension.
+Current connected-account architecture: [Autonomous agent V0](autonomous-agent.md).
+It adds private Google history analysis through Bedrock, a budget-protected SQS
+worker and automatic A2A booking. Google OAuth and calendar write semantics are
+covered in [Connected Google accounts](google-calendar-booking.md).
+
+The sections below retain the original foundation and public booking-page gate
+design. Their stage-specific limits describe those earlier gates; use the linked
+current architecture for the worker, authenticated routes and inference budget.
 
 ## Confirmed choices
 

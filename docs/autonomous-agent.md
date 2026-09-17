@@ -44,6 +44,22 @@ A2A. This V0 has one exchange, without an open-ended LLM conversation.
 
 ## Execution
 
+```mermaid
+flowchart TD
+    Browser[Browser: Organize and book] --> API[Authenticated task API]
+    API --> Queue[SQS]
+    Queue --> Worker[Rust calendar worker]
+    Worker --> Ledger[Atomic shared budget ledger]
+    Ledger -->|Reservation admitted| Model[Bedrock: bounded preference analysis]
+    Worker -->|A2A availability and commit| Host[Counterpart agent / shared API]
+    Worker --> Google[Google Calendar]
+    Host --> Google
+    Worker --> Tasks[Durable task status]
+    Browser -->|Poll or resume| API
+    API --> Tasks
+```
+
+
 `POST /calendar/tasks` requires a session, same-origin request, host URL and client
 UUID. The account and UUID derive one task/booking ID. Retrying the same request is
 idempotent; reusing the UUID for a different host is rejected.
@@ -106,6 +122,21 @@ value changes so deployments do not reset spending. Runtime roles cannot delete
 the ledger; API and deployment roles cannot invoke Bedrock. API writes are restricted
 to `job:*` keys. Only the worker can call the one allowed inference profile.
 
+## Bedrock account setup
+
+The account needs the Anthropic first-use form and the metered model agreement
+for `anthropic.claude-haiku-4-5-20251001-v1:0`, enabled once by the operator.
+These were requested for this project on September 17, 2026. The runtime does
+not receive Marketplace subscription permissions. No provisioned capacity is
+configured. See [AWS model-access setup](https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html).
+
+Check `get-foundation-model-availability` before probing: agreement,
+authorization, entitlement and regional availability must be ready. The inference
+profile being `ACTIVE` alone does not prove that account onboarding is complete.
+The initial deployment also encountered the account's minimum unreserved Lambda
+concurrency; the worker uses SQS maximum concurrency two without a Lambda reserved
+concurrency allocation. Budget admission is atomic independently of concurrency.
+
 ## Verification
 
 - `cargo test --locked`: concurrent reservations, overflow, missing/corrupt ledger,
@@ -149,3 +180,22 @@ unresolved holds and remaining allowance. It does not issue an inference or
 modify the counter. `examples/history_probe.rs` separately verifies the live
 Google history adapter with explicitly configured test account IDs and prints
 counts only; it does not call Bedrock or book a meeting.
+
+## Acceptance evidence — 2026-09-17
+
+- Local full suite: 73 passing tests, two opt-in legacy Google network tests
+  ignored; the added strict JSON-response test also passes (74 tests total).
+- Real DynamoDB adapter: 80 simultaneous $1 reservations admitted exactly 25.
+  A further nanodollar was rejected, including after duplicate completion.
+  The isolated test table was deleted; the production ledger was untouched.
+- IAM simulation verifies that the API/deployment roles cannot invoke Bedrock or
+  modify the budget; the worker can invoke only the configured inference profile.
+- A bootstrap Terraform plan after real inference reports **no changes**, proving
+  that routine application of this configuration preserves the used ledger.
+- Live Google history reads succeeded for both configured test accounts; only
+  aggregate counts were printed. No real meeting was created for verification.
+- Browser fixtures verified success with learned duration, previous meetings,
+  reload during processing and no shared slot.
+- Production commit `573d064`: [CI run](https://github.com/Math1987/aithos-calendar/actions/runs/35211394470)
+  passed all 74 tests and deployment smoke checks. The worker is Active with a
+  successful update, and its SQS mapping is Enabled with maximum concurrency two.

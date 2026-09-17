@@ -1,9 +1,21 @@
 # Calendar
 
-A minimal scheduling service: share a link, let the other person paste their
-public Google booking-page link, and find a suitable appointment automatically.
+A minimal scheduling service: connect Google Calendar, share your agent’s link,
+and let two A2A agents find and book a suitable meeting. Public Google booking
+pages remain available through the earlier Anakin pilot.
 
 ## Current status
+
+The connected-account agent V0 reads meeting history, uses AWS Bedrock to infer
+supported preferences, negotiates through A2A, and books after **Organize and
+book**. A durable worker continues when the browser is closed. Deterministic
+scheduling remains available when history, inference or budget is unavailable.
+
+All application inference shares a hard admission ledger: USD 25 operating
+allowance under the USD 30 monthly ceiling, using conservative maximum charges.
+See [architecture, budget boundaries and manual test](docs/autonomous-agent.md).
+
+### Earlier public booking-page gates
 
 The Rust service hosts persistent booking-page agents through one shared A2A 1.0
 JSON-RPC endpoint. Signed AgentCards are published on Aithos, and the dynamic AI
@@ -21,10 +33,12 @@ host time zone, review it, then click **Book**. This sends a real Anakin request
 with durable status and duplicate protection. The first live confirmation remains
 to be validated; completed requests ask you to check Google’s email and calendar.
 See [booking acceptance](docs/booking-browser.md). The first usable version requires no LLM;
-Bedrock remains optional for a future conversational interface.
+The connected-account flow now uses optional Bedrock preference analysis.
 Repository: https://github.com/Math1987/aithos-calendar (public).
 
 ## Documentation
+
+- [Autonomous agent and inference budget](docs/autonomous-agent.md)
 
 - [Google sign-in manual gate](docs/google-sign-in.md)
 - [Google OAuth setup](docs/google-oauth-setup.md)
@@ -58,7 +72,8 @@ Terraform state, and generated artifacts out of Git.
 
 Real Google availability and the Anakin booking transport use separate
 adapters. Public page onboarding requires no user authentication; a pasted page
-does not prove ownership. The website only submits a booking after the visitor clicks Book.
+does not prove ownership. The public-page pilot submits bookings after **Book**;
+the connected-account flow uses **Organize and book** to authorize one meeting.
 
 ## Connected Google accounts
 
