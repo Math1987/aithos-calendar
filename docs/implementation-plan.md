@@ -11,7 +11,8 @@ Each gate ends with a manual acceptance check, deployed commit and known limits.
 Wait for owner acceptance before the next gate; do not provision future resources
 in advance. The current authorized scope is the real Google HTTP reader and Anakin booking
 integration. Begin with controlled provider checks, then connect them to A2A
-and the browser. A fixed server-side test attendee was agreed on September 17.
+and the browser. Derive attendee contact from the visitor booking page, requesting
+missing details only when needed; this supersedes the fixed test attendee.
 
 ## Gates
 
@@ -45,9 +46,9 @@ not prove availability outside that coverage. Isolate the undocumented HTTP
 protocol, validate URL hosts and redirects, and resolve coverage gaps before
 booking. Match the target appointment duration, not equal page durations.
 
-For gate 6, the first controlled test uses a fixed server-side attendee. Validate
-email confirmation and any Google verification requirements. This test identity
-is not an accepted substitute for the visitor in the final public flow.
+For gate 6, use the visitor page’s public contact with an explicit fallback for
+missing or ambiguous fields. This is not authenticated ownership. Validate email
+confirmation, any Google verification requirements, and the effect on both calendars.
 Use durable operation status and an appropriate execution mechanism for Anakin's
 asynchronous work. Do not retry uncertain submissions blindly. Do not keep HTTP
 requests waiting for a long booking operation or run background work after a

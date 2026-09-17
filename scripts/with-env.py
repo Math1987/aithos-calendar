@@ -7,6 +7,8 @@ import sys
 
 root = Path(__file__).resolve().parents[1]
 env = os.environ.copy()
+# BOOKING_TEST_* remain accepted for older local files, but the booking flow
+# now derives the attendee from the visitor page and does not use these values.
 allowed = {"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
            "AWS_DEFAULT_REGION", "AWS_REGION", "GH_TOKEN", "ANAKIN_API_KEY",
            "BOOKING_TEST_FIRST_NAME", "BOOKING_TEST_LAST_NAME", "BOOKING_TEST_EMAIL"}

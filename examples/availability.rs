@@ -1,6 +1,7 @@
 //! Read-only provider check. No Anakin call and no appointment creation.
 use calendar::{
     availability::{AvailabilityReader, GoogleHttpReader, first_host_slot},
+    booking::{Attendee, AttendeeDetails},
     booking_page::{BookingPages, GoogleBookingPages},
 };
 use chrono::{DateTime, Duration, Utc};
@@ -26,11 +27,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         reader.read(&host, start, end),
         reader.read(&peer, start, end)
     )?;
+    let missing = Attendee::from_page(&peer.identity, &AttendeeDetails::default())
+        .err()
+        .map(|e| e.fields)
+        .unwrap_or_default();
     println!(
         "{}",
         serde_json::to_string_pretty(&json!({
             "host":{"title":host.title,"duration_minutes":host.duration_minutes,"timezone":host.timezone,"offered_slots":host.slots.len()},
             "peer":{"title":peer.title,"duration_minutes":peer.duration_minutes,"timezone":peer.timezone,"offered_slots":peer.slots.len()},
+            "attendee_identity":{"source":"visitor_booking_page","ready":missing.is_empty(),"missing_fields":missing},
             "slot":first_host_slot(&host,&peer),"mock":false,"reserved":false,
             "coverage":"public_booking_pages_only","window_start":start,"window_end":end
         }))?

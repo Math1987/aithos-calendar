@@ -13,8 +13,9 @@ protocol, isolated in one module; parsing changes fail closed.
 
 Only approved Google HTTPS destinations are used. RPC requests do not redirect.
 Bodies, timeouts, slots, duration and the search window (30 days) are bounded.
-Responses must refer to the requested schedule. Only title, time zone, duration
-and offered intervals are retained; owner email and unrelated fields are ignored.
+Responses must refer to the requested schedule. Title, time zone, duration, offered intervals, and optional public contact details
+are retained. Contact details are excluded from serialized availability and
+redacted in its debug representation; unrelated fields are ignored.
 No page or provider response body is logged.
 
 Selection preserves an actual host start and complete host duration. Visitor
@@ -56,24 +57,51 @@ Do not treat job `completed` as proof of a booking. The transport currently
 returns `CompletedUnverified(data)` until the action’s real output has been
 validated. No success is exposed to the website by this adapter.
 
-### Local configuration
+### Page-derived attendee
 
-Keep these values in the ignored `.env`; `scripts/with-env.py` supports them:
+The visitor page supplies the attendee for the host page’s appointment. The
+reader extracts the public display name and email associated with the schedule.
+This is contact discovery, **not authenticated ownership** of the pasted page.
+The decision to use it replaces the earlier fixed test attendee configuration.
+
+A two-word, name-like display name is split into first and last name. This is a
+heuristic: two-word organization names or reversed name order cannot reliably be
+distinguished. Other formats (including mononyms and compound names) return the
+specific missing first/last name fields rather than inventing a split. Email is
+checked against a conservative address syntax, not verified for deliverability.
+Missing or malformed identity never prevents reading availability.
+
+`Attendee::from_page` accepts optional supplied details and returns either a usable
+attendee or structured `missing_fields`. The terminal booking command prompts only
+for those fields when attached to a terminal. Without an interactive terminal it
+stops before submission with a list of required fields. Existing `BOOKING_TEST_*`
+variables are ignored; there is no fallback to the host or a shared mailbox.
+The future web flow will use the same result to request details when necessary.
+Contact data is not added to agent cards, catalog entries, ordinary logs or A2A
+availability serialization. The Anakin booking request necessarily includes it.
+
+Before submission, the command re-reads both schedules and checks that the visitor
+page’s contact has not changed. The final invitation/calendar effect and any email
+verification still need a controlled real booking test.
+
+### Local configuration and read-only preparation
+
+Only the provider credential is needed in the ignored `.env` for submission:
 
 ```dotenv
 ANAKIN_API_KEY=your_key
-BOOKING_TEST_EMAIL=your_test_inbox
-# Optional overrides; otherwise Calendar / Guest:
-# BOOKING_TEST_FIRST_NAME=Calendar
-# BOOKING_TEST_LAST_NAME=Guest
 ```
 
-The first real test uses this one fixed attendee, per the owner’s decision.
-Names default to Calendar / Guest. Email has no default: provide one real inbox
-you control. Google sends booking communications to that identity and may require
-a verification code. A shared service attendee can be reused for controlled
-tests, but it does not invite the actual visitor or ensure their calendar becomes
-busy. Do not infer a visitor identity from a public booking URL.
+No provider key or fixed attendee configuration is needed for a read-only check:
+
+```sh
+cargo run --locked --example availability -- "$HOST_BOOKING_URL" "$GUEST_BOOKING_URL"
+cargo run --locked --example booking -- prepare "$HOST_BOOKING_URL" "$GUEST_BOOKING_URL"
+```
+
+The first command reports identity readiness/missing fields without printing the
+contact values. The second prepares and validates the booking request without
+contacting Anakin, writing a journal, or creating an appointment.
 
 ### Controlled one-booking test
 
@@ -113,9 +141,19 @@ reconciliation before another attempt. Google may require email verification.
 4. Use bounded API calls and status polling, not a Lambda waiting for the whole
    provider job. The UI resumes the same operation after a reload.
 5. Store the Anakin secret on AWS, make it accessible only to the booking runtime,
-   and update the existing UI to real metadata/results. Keep test attendee use
-   clearly identified until the final visitor identity flow is decided.
+   and update the existing UI to real metadata/results and conditional attendee
+   fields. Public page ownership remains unverified.
 6. Deploy and manually test busy slots, unequal durations, no overlap, time zones,
    provider failure, duplicate submits and confirmation in both calendars.
 
 No LLM is needed for this deterministic provider integration.
+
+## Identity extraction verification (2026-09-17)
+
+- The full Rust suite passed: 28 tests, with the existing live network test ignored.
+- Read-only `booking prepare` passed with the two test pages in both host/visitor
+  directions, without prompting for attendee details. Both selected the offered
+  30-minute slot starting at `2026-09-18T07:00:00Z`.
+- Preparation printed no contact values and made no Anakin request. No appointment
+  was booked. The production website remains on the mock flow until the remaining
+  integration above is completed.

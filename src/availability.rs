@@ -29,9 +29,32 @@ impl std::fmt::Display for ReadError {
 }
 impl std::error::Error for ReadError {}
 
+/// Public contact details associated with a page, not proof of ownership.
+/// Kept out of Schedule serialization (including future A2A availability replies).
+#[derive(Clone, Default, PartialEq, Eq)]
+pub struct PageIdentity {
+    pub display_name: Option<String>,
+    pub email: Option<String>,
+}
+impl std::fmt::Debug for PageIdentity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("PageIdentity([redacted])")
+    }
+}
+fn identity_text(value: &Value) -> Option<String> {
+    value
+        .as_str()
+        .filter(|s| s.len() <= 254 && !s.chars().any(char::is_control))
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct Schedule {
     pub schedule_id: String,
+    #[serde(skip)]
+    pub identity: PageIdentity,
     pub title: String,
     pub timezone: String,
     pub duration_minutes: u16,
@@ -213,6 +236,10 @@ fn parse_schedule(
     slots.dedup();
     Ok(Schedule {
         schedule_id: id.into(),
+        identity: PageIdentity {
+            display_name: identity_text(&data[3]),
+            email: identity_text(&data[26]),
+        },
         title,
         timezone,
         duration_minutes,
@@ -307,6 +334,7 @@ mod tests {
     fn schedule(duration: u16, ranges: &[(i64, i64)]) -> Schedule {
         Schedule {
             schedule_id: "test".into(),
+            identity: PageIdentity::default(),
             title: "Test".into(),
             timezone: "UTC".into(),
             duration_minutes: duration,
@@ -385,6 +413,31 @@ mod tests {
                 .is_empty()
         );
     }
+    #[test]
+    fn contact_is_optional_and_never_serialized_with_availability() {
+        let mut data = vec![Value::Null; 27];
+        data[1] = json!("Meeting");
+        data[5] = json!([[30]]);
+        data[6] = json!("test");
+        data[24] = json!("UTC");
+        data[3] = json!("Jane Doe");
+        data[26] = json!("jane@example.com");
+        let parsed =
+            parse_schedule("test", at(0), at(180), &json!([data.clone()]), &json!([])).unwrap();
+        assert_eq!(parsed.identity.display_name.as_deref(), Some("Jane Doe"));
+        assert_eq!(parsed.identity.email.as_deref(), Some("jane@example.com"));
+        assert!(
+            !serde_json::to_string(&parsed)
+                .unwrap()
+                .contains("jane@example.com")
+        );
+        assert!(!format!("{parsed:?}").contains("Jane Doe"));
+        data[3] = json!({"unexpected":"shape"});
+        data.truncate(25);
+        let parsed = parse_schedule("test", at(0), at(180), &json!([data]), &json!([])).unwrap();
+        assert!(parsed.identity.display_name.is_none() && parsed.identity.email.is_none());
+    }
+
     #[test]
     fn configuration_is_parsed_as_data() {
         let key = "AIzaPublicFixture";

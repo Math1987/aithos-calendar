@@ -95,26 +95,26 @@ start grids, buffers, and existing events before accepting it as the product rul
 Never interpret an unknown interval as free. Exact conflict checking outside
 those exposed intervals may require another availability source.
 
-## Booking identity: controlled test agreed; public flow deferred
+## Booking identity: derive contact from the visitor page
 
-Anakin's booking action requests first name, last name, and email. The email
-identifies the guest and is used for booking communications/invitations. Google
-can additionally require email verification, depending on the host's settings.
+Use the public display name and email associated with the visitor’s booking page
+as the attendee when booking on the host’s page. This replaces the fixed server
+attendee decision. The normal flow retains one booking-link input. If contact
+fields are absent, invalid or the name format is ambiguous, request only the
+missing fields before any booking submission.
 
-Using one shared service identity would make that identity the guest. It does not
-establish that the visitor receives the invitation or that their calendar becomes
-busy. Extracting identity from a supplied public URL also does not authenticate
-the submitter as its owner.
+The current adapter splits simple two-word names into first/last name; this is a
+heuristic, not a guarantee of name order or a personal rather than organization
+identity. Other name formats require explicit details. Do not substitute Calendar
+Guest, a shared mailbox, or the host’s contact details.
 
-For the first controlled booking test, use one fixed attendee configured only
-on the server (`BOOKING_TEST_FIRST_NAME`, `BOOKING_TEST_LAST_NAME`,
-`BOOKING_TEST_EMAIL`). Names default to Calendar / Guest; only the email is
-required configuration. This was agreed on September 17, 2026.
-The chosen inbox must be checked for confirmation and any verification request.
-This test identity does not establish the visitor’s identity or guarantee that
-the visitor’s own calendar becomes busy. Before public booking, decide which
-identity books and verify that both people’s calendars reflect the meeting.
-Do not introduce these fields or a shared mailbox during the foundation stage.
+Anyone can paste another person’s public page. Extracted contact details therefore
+do not authenticate the visitor. Google may additionally require an email code.
+Check confirmation and the effect on both calendars in the controlled booking
+test; receiving an invitation does not itself prove the visitor’s calendar is busy.
+
+The reader and terminal preparation/booking command support this policy. The
+production web flow remains mocked until real provider integration is completed.
 
 ## Error cases for the future booking flow
 

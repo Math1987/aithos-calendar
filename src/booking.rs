@@ -1,38 +1,147 @@
 //! Anakin Wire transport. Submission is never automatically retried.
 //! A completed job is provider data, not yet a verified appointment confirmation.
-use crate::availability::{Schedule, Slot};
+use crate::availability::{PageIdentity, Schedule, Slot};
 use async_trait::async_trait;
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::time::Duration;
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, PartialEq, Eq, Serialize)]
 pub struct Attendee {
     pub first_name: String,
     pub last_name: String,
     pub email: String,
 }
+/// Values requested only when the page's contact details are incomplete.
+#[derive(Default)]
+pub struct AttendeeDetails {
+    pub first_name: Option<String>,
+    pub last_name: Option<String>,
+    pub email: Option<String>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AttendeeField {
+    FirstName,
+    LastName,
+    Email,
+}
+impl std::fmt::Display for AttendeeField {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::FirstName => "first name",
+            Self::LastName => "last name",
+            Self::Email => "email",
+        })
+    }
+}
+#[derive(Debug)]
+pub struct MissingAttendeeDetails {
+    pub fields: Vec<AttendeeField>,
+}
+impl std::fmt::Display for MissingAttendeeDetails {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Attendee details needed: {}",
+            self.fields
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    }
+}
+impl std::error::Error for MissingAttendeeDetails {}
+fn valid_name(value: &str) -> bool {
+    !value.trim().is_empty() && value.len() <= 254 && !value.chars().any(char::is_control)
+}
+fn valid_email(value: &str) -> bool {
+    // Supported address subset, not an ownership or deliverability check.
+    let Some((local, domain)) = value.split_once('@') else {
+        return false;
+    };
+    !local.is_empty()
+        && local.len() <= 64
+        && value.len() <= 254
+        && !local.starts_with('.')
+        && !local.ends_with('.')
+        && !local.contains("..")
+        && local
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b".!#$%&'*+-/=?^_`{|}~".contains(&b))
+        && domain.contains('.')
+        && domain.split('.').all(|label| {
+            !label.is_empty()
+                && label.len() <= 63
+                && !label.starts_with('-')
+                && !label.ends_with('-')
+                && label
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        })
+}
 impl Attendee {
-    pub fn from_env() -> Result<Self, BookingError> {
-        let read = |key| std::env::var(key).map_err(|_| BookingError::NotConfigured);
-        let attendee = Self {
-            first_name: std::env::var("BOOKING_TEST_FIRST_NAME")
-                .unwrap_or_else(|_| "Calendar".into()),
-            last_name: std::env::var("BOOKING_TEST_LAST_NAME").unwrap_or_else(|_| "Guest".into()),
-            email: read("BOOKING_TEST_EMAIL")?,
+    /// Use the visitor page, never the host's contact or a global fallback.
+    /// Two word display names use a first/last heuristic. It is not verified
+    /// identity; compound names and other formats require explicit details.
+    pub fn from_page(
+        identity: &PageIdentity,
+        details: &AttendeeDetails,
+    ) -> Result<Self, MissingAttendeeDetails> {
+        let words: Vec<_> = identity
+            .display_name
+            .as_deref()
+            .unwrap_or("")
+            .split_whitespace()
+            .collect();
+        let name_word = |s: &str| {
+            s.chars().any(char::is_alphabetic)
+                && s.chars()
+                    .all(|c| c.is_alphabetic() || matches!(c, '-' | '\'' | '’'))
         };
-        attendee.validate()?;
-        if attendee.email.ends_with("@example.com") {
-            return Err(BookingError::NotConfigured);
+        let inferred = match words.as_slice() {
+            [first, last] if name_word(first) && name_word(last) => Some((*first, *last)),
+            _ => None,
+        };
+        let first = details
+            .first_name
+            .as_deref()
+            .or(inferred.map(|v| v.0))
+            .map(str::trim);
+        let last = details
+            .last_name
+            .as_deref()
+            .or(inferred.map(|v| v.1))
+            .map(str::trim);
+        let email = details
+            .email
+            .as_deref()
+            .or(identity.email.as_deref())
+            .map(str::trim);
+        let mut fields = Vec::new();
+        if !first.is_some_and(valid_name) {
+            fields.push(AttendeeField::FirstName);
         }
-        Ok(attendee)
+        if !last.is_some_and(valid_name) {
+            fields.push(AttendeeField::LastName);
+        }
+        if !email.is_some_and(valid_email) {
+            fields.push(AttendeeField::Email);
+        }
+        if !fields.is_empty() {
+            return Err(MissingAttendeeDetails { fields });
+        }
+        Ok(Self {
+            first_name: first.unwrap().into(),
+            last_name: last.unwrap().into(),
+            email: email.unwrap().into(),
+        })
     }
     fn validate(&self) -> Result<(), BookingError> {
-        if [&self.first_name, &self.last_name, &self.email]
-            .iter()
-            .any(|v| v.trim().is_empty() || v.len() > 254 || v.chars().any(char::is_control))
-            || !self.email.contains('@')
-            || self.email.chars().any(char::is_whitespace)
+        if !valid_name(&self.first_name)
+            || !valid_name(&self.last_name)
+            || !valid_email(&self.email)
         {
             return Err(BookingError::InvalidRequest);
         }
@@ -52,7 +161,7 @@ pub enum BookingError {
 impl std::fmt::Display for BookingError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
-            Self::NotConfigured => "Booking provider or test attendee is not configured",
+            Self::NotConfigured => "Booking provider is not configured",
             Self::InvalidRequest => "Invalid appointment or attendee",
             Self::Rejected => "Anakin rejected the request",
             Self::Unavailable => "Anakin is temporarily unavailable",
@@ -241,6 +350,84 @@ impl BookingProvider for AnakinBooking {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn visitor_identity_reaches_provider_payload_and_missing_fields_are_specific() {
+        let page = PageIdentity {
+            display_name: Some("Mathieu Colla".into()),
+            email: Some("guest@example.com".into()),
+        };
+        let attendee = Attendee::from_page(&page, &AttendeeDetails::default()).unwrap();
+        let start = chrono::DateTime::from_timestamp(1_800_000_000, 0).unwrap();
+        let request = BookingRequest {
+            schedule_id: "host-schedule".into(),
+            slot: Slot {
+                start,
+                end: start + chrono::Duration::minutes(30),
+            },
+            duration_minutes: 30,
+            attendee,
+        };
+        let params = request.payload().unwrap()["params"].clone();
+        assert_eq!(params["schedule_id"], "host-schedule");
+        assert_eq!(params["email"], "guest@example.com");
+        assert_eq!(params["first_name"], "Mathieu");
+        assert_eq!(params["last_name"], "Colla");
+        let incomplete = PageIdentity {
+            email: None,
+            ..page.clone()
+        };
+        assert_eq!(
+            Attendee::from_page(&incomplete, &AttendeeDetails::default())
+                .err()
+                .unwrap()
+                .fields,
+            vec![AttendeeField::Email]
+        );
+        let corrected = Attendee::from_page(
+            &incomplete,
+            &AttendeeDetails {
+                email: Some("supplied@example.com".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(corrected.first_name, "Mathieu");
+        assert_eq!(corrected.email, "supplied@example.com");
+        for name in ["Prince", "María del Carmen", "Support / Sales", ""] {
+            let ambiguous = PageIdentity {
+                display_name: Some(name.into()),
+                ..page.clone()
+            };
+            assert_eq!(
+                Attendee::from_page(&ambiguous, &AttendeeDetails::default())
+                    .err()
+                    .unwrap()
+                    .fields,
+                vec![AttendeeField::FirstName, AttendeeField::LastName]
+            );
+        }
+        for email in [
+            "",
+            "x@y@z.com",
+            "Name <x@example.com>",
+            "x\n@example.com",
+            "x@-example.com",
+            "x@localhost",
+        ] {
+            let invalid = PageIdentity {
+                email: Some(email.into()),
+                ..page.clone()
+            };
+            assert_eq!(
+                Attendee::from_page(&invalid, &AttendeeDetails::default())
+                    .err()
+                    .unwrap()
+                    .fields,
+                vec![AttendeeField::Email]
+            );
+        }
+    }
+
     #[test]
     fn completed_job_requires_further_confirmation_and_unknown_states_fail_closed() {
         assert!(matches!(
