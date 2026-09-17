@@ -205,3 +205,10 @@ counts only; it does not call Bedrock or book a meeting.
   (`destroy = false`). The live DynamoDB item was identical before and after,
   and the seed is absent from Terraform state: routine bootstrap cannot reset a
   missing record by creating a new zero-value seed.
+- After Anthropic's first-use propagation interval, the production worker's
+  synthetic probe returned `model_available` with valid bounded JSON preferences.
+  Account agreement, entitlement and regional availability are AVAILABLE.
+  The shared ledger then showed $0.56408 completed maximum charges, $0.84612 in
+  retained uncertain holds and $23.5898 remaining operating allowance. These are
+  conservative authorization amounts, not measured AWS invoice charges. No hold
+  was refunded and no calendar event was created by the probe.
