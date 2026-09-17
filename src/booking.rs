@@ -491,11 +491,6 @@ mod tests {
     }
 }
 
-/// Fail closed until the provider's real booking confirmation schema is verified.
-pub fn confirmed(_data: &Value, _request: &crate::booking_store::BookingOperation) -> bool {
-    false
-}
-
 /// Cache a successfully loaded provider client in each warm Lambda environment.
 /// Health and read-only A2A requests never need the booking secret.
 pub struct SecretsBooking {

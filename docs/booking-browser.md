@@ -2,22 +2,26 @@
 
 ## State — 17 September 2026
 
-Implementation is on `codex/browser-booking`, not deployed. Gate 5 was accepted.
-The browser and durable operation flow are implemented and tested with fake
-provider outcomes. A real Anakin booking has **not** been submitted yet.
+The browser proposes the first shared host appointment **from tomorrow** in the
+host schedule's IANA time zone, within a 30-day horizon from now. This is a calendar
+day rule, not a rolling 24-hour delay. It respects daylight-saving changes.
+The visitor reviews the exact time and clicks **Book** to submit a real request.
+Editing the visitor link clears the proposal. No LLM is involved.
 
-**Deployment prerequisite:** capture one explicitly approved real `gap_book_slot`
-result, implement the exact confirmation validator in `booking::confirmed`, and
-add a redacted response fixture. That function currently returns false on purpose.
-Do not merge/deploy this draft as a finished booking service. Anakin's public
-catalog provides the input fields but no booking output schema. A completed job
-alone is insufficient evidence that the requested appointment was reserved.
+**First-live-test limitation:** no real Anakin appointment has been submitted by
+us yet. Its public catalog does not specify the booking confirmation schema.
+A completed provider job therefore returns `confirmation_required`, not `booked`.
+The UI says the request completed and asks the visitor to check Google's email
+and calendar. The saved provider job ID allows read-only inspection afterward.
+Once that actual response and appointment are checked, add a redacted fixture and
+a validator for automatic confirmed success. Never submit a second job to learn
+the first job's outcome. This is a manual validation pilot, not a completed gate 6.
 
 ## Flow
 
 1. The existing A2A exchange finds a complete offered host slot covered by the
    visitor's advertised intervals. This remains deterministic and read-only.
-2. The browser persists a random operation UUID and the proposed host/visitor/slot
+2. After the visitor clicks **Book**, the browser persists a random operation UUID and the proposed host/visitor/slot
    locally before POST `/bookings`. It stores no attendee names or email.
 3. The server rereads both Google pages and validates the exact proposed slot.
    The attendee comes from the visitor page; missing fields return 422 and the
@@ -28,8 +32,9 @@ alone is insufficient evidence that the requested appointment was reserved.
    queue, Step Functions state machine or LLM is needed.
 5. A persisted polling lease limits duplicate polls from multiple tabs.
 6. Only a verified provider confirmation may yield `booked` / `reserved:true`.
-   An ambiguous submission, failed asynchronous job, or unsupported completion
-   yields `unknown`. No automatic retry is made.
+   Anakin completion currently yields `confirmation_required`. An ambiguous
+   submission or failed asynchronous job yields `unknown`. Neither state is
+   automatically retried and both retain the agent locks for reconciliation.
 
 Refresh resumes the saved operation with GET, never a new POST. The API also
 makes a repeated POST with the same UUID and input idempotent. Reusing the UUID
@@ -57,13 +62,15 @@ Bootstrap was applied: scoped booking permissions and metadata for Secrets Manag
 secret `calendar/production/anakin`. Its API key value was loaded separately and
 verified without output; it never enters Terraform state. Warm Lambda instances
 cache the client. After key rotation, recycle Lambda environments to reload it.
-The production table/routes have not been applied yet.
+The production configuration adds the booking table, POST and GET routes, and a
+28-second Lambda timeout within the existing 29-second API integration timeout.
 
 ## Manual acceptance after deployment
 
 - Use two controlled pages and check the contact associated with the visitor page.
-- Open the host share link, paste the visitor link, and choose **Find and book a time**.
-  This authorizes a real booking and Google confirmation, using Anakin credits.
+- Open the host share link, paste the visitor link, and choose **Find a time**. Verify that the proposal is
+  tomorrow or later in the host time zone. Then click **Book**. Only this click
+  authorizes a real booking and Google confirmation, using Anakin credits.
 - Verify the exact date/time/duration, host appointment, visitor email invitation
   and whether it blocks the visitor's calendar. Receiving an invitation is not
   necessarily the same as accepting/blocking it under every Google account setting.

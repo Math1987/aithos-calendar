@@ -32,6 +32,7 @@ rand_core = { version = "=0.6.4", features = ["getrandom"] }
 sha2 = "=0.10.9"
 regex = "=1.13.1"
 aws-sdk-secretsmanager = { version = "=1.117.0", default-features = false, features = ["rt-tokio", "default-https-client"] }
+chrono-tz = "=0.10.4"
 
 [dev-dependencies]
 registry-core = { package = "aithos-registry-core", version = "=0.2.0" }

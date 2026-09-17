@@ -13,6 +13,7 @@ use std::{collections::HashMap, sync::Mutex};
 pub enum Stage {
     Submitting,
     Pending,
+    ConfirmationRequired,
     Booked,
     Failed,
     Unknown,

@@ -127,7 +127,8 @@ async fn submit(State(s): State<Arc<Bookings>>, Json(input): Json<Submission>) -
         Ok(Err(code)) => return error(StatusCode::SERVICE_UNAVAILABLE, code),
         Err(_) => return error(StatusCode::GATEWAY_TIMEOUT, "timeout"),
     };
-    if !host.slots.contains(&input.slot)
+    if !crate::availability::starts_tomorrow(&input.slot, &host.timezone, start).unwrap_or(false)
+        || !host.slots.contains(&input.slot)
         || first_host_slot(
             &crate::availability::Schedule {
                 slots: vec![input.slot.clone()],
@@ -237,13 +238,10 @@ async fn status(State(s): State<Arc<Bookings>>, Path(id): Path<String>) -> Respo
         Ok(JobStatus::Processing { retry_after_ms }) => {
             r.next_poll = now() + ((retry_after_ms + 999) / 1000).max(3) as i64
         }
-        Ok(JobStatus::CompletedUnverified(data)) => {
-            r.stage = if crate::booking::confirmed(&data, &r) {
-                Stage::Booked
-            } else {
-                Stage::Unknown
-            }
-        }
+        // The provider completed its action, but its action-specific confirmation
+        // schema must be validated with the first owner-confirmed browser booking.
+        // Keep the job ID for read-only reconciliation; never submit it again.
+        Ok(JobStatus::CompletedUnverified(_data)) => r.stage = Stage::ConfirmationRequired,
         // A failed job may have failed after Google wrote the appointment.
         Ok(JobStatus::Failed) => r.stage = Stage::Unknown,
         Err(_) => return view(&r),

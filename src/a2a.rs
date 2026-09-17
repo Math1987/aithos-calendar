@@ -144,7 +144,14 @@ impl CalendarHandler {
                 let Some(visitor) = peer_availability.into_schedule() else {
                     return Ok(error("invalid_peer_response", Some(&peer)));
                 };
-                let slot = crate::availability::first_host_slot(&host, &visitor);
+                let slot = match crate::availability::first_host_slot_from_tomorrow(
+                    &host,
+                    &visitor,
+                    window.start,
+                ) {
+                    Ok(slot) => slot,
+                    Err(_) => return Ok(error("availability_unavailable", Some(&peer))),
+                };
                 let status = if slot.is_some() {
                     "slot_found"
                 } else {
@@ -155,7 +162,7 @@ impl CalendarHandler {
                     if slot.is_some() {
                         "A real common host slot was found; nothing was booked"
                     } else {
-                        "No common offered host slot in the next 30 days"
+                        "No common offered host slot from tomorrow within the next 30 days"
                     },
                     json!({"status":status,"organizer":agent.identifier(),"peer":peer,"slot":slot,
                         "duration_minutes":host.duration_minutes,"schedule":ScheduleInfo::from(&host),

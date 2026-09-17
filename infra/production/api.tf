@@ -17,7 +17,7 @@ resource "aws_lambda_function" "health" {
   runtime          = "provided.al2023"
   architectures    = ["x86_64"]
   memory_size      = 128
-  timeout          = 25
+  timeout          = 28
   filename         = data.archive_file.health.output_path
   source_code_hash = data.archive_file.health.output_base64sha256
   depends_on       = [aws_cloudwatch_log_group.lambda]

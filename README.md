@@ -16,8 +16,11 @@ advertised availability through A2A. The two existing test-page agents were
 upgraded to card version 0.4.0 without changing their identities or shared links.
 See the [manual gate 5 test](docs/live-browser-test.md).
 
-No appointment is booked by the website yet. The next gate verifies and connects
-Anakin booking with durable status. The first usable version requires no LLM;
+Gate 6 adds a booking pilot: find the first shared slot from tomorrow in the
+host time zone, review it, then click **Book**. This sends a real Anakin request
+with durable status and duplicate protection. The first live confirmation remains
+to be validated; completed requests ask you to check Google’s email and calendar.
+See [booking acceptance](docs/booking-browser.md). The first usable version requires no LLM;
 Bedrock remains optional for a future conversational interface.
 Repository: https://github.com/Math1987/aithos-calendar (public).
 
@@ -51,6 +54,6 @@ Terraform state, and generated artifacts out of Git.
 | Primary region | `eu-west-3` (profile configuration) |
 | Environment | Production only |
 
-Real Google availability and the operator-only Anakin transport use separate
+Real Google availability and the Anakin booking transport use separate
 adapters. Public page onboarding requires no user authentication; a pasted page
-does not prove ownership. The deployed website reads availability and does not book.
+does not prove ownership. The website only submits a booking after the visitor clicks Book.

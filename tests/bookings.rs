@@ -59,6 +59,7 @@ struct Provider {
     writes: AtomicUsize,
     polls: AtomicUsize,
     unknown: bool,
+    completed: std::sync::atomic::AtomicBool,
 }
 #[async_trait]
 impl BookingProvider for Provider {
@@ -72,6 +73,11 @@ impl BookingProvider for Provider {
     }
     async fn status(&self, _: &str) -> Result<JobStatus, BookingError> {
         self.polls.fetch_add(1, Ordering::SeqCst);
+        if self.completed.load(Ordering::SeqCst) {
+            return Ok(JobStatus::CompletedUnverified(
+                json!({"provider_result":"unverified"}),
+            ));
+        }
         Ok(JobStatus::Processing {
             retry_after_ms: 3000,
         })
@@ -112,6 +118,7 @@ async fn setup(missing: bool, busy: bool, unknown: bool) -> (Router, Arc<Provide
         writes: AtomicUsize::new(0),
         polls: AtomicUsize::new(0),
         unknown,
+        completed: std::sync::atomic::AtomicBool::new(false),
     });
     let app = router(Bookings {
         agents,
@@ -212,4 +219,20 @@ async fn stale_slot_and_unknown_agent_never_reach_provider() {
         "unknown_live_agent"
     );
     assert_eq!(p.writes.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn first_completed_provider_job_requires_confirmation_without_resubmitting() {
+    let (app, p, input) = setup(false, false, false).await;
+    p.completed.store(true, Ordering::SeqCst);
+    assert_eq!(call(&app, "POST", "/bookings", input.clone()).await.0, 202);
+    let path = format!("/bookings/{}", input["id"].as_str().unwrap());
+    for _ in 0..2 {
+        let (_, result) = call(&app, "GET", &path, Value::Null).await;
+        assert_eq!(result["status"], "confirmation_required");
+        assert_eq!(result["reserved"], false);
+        assert!(result.get("job_id").is_none());
+    }
+    assert_eq!(p.writes.load(Ordering::SeqCst), 1);
+    assert_eq!(p.polls.load(Ordering::SeqCst), 1);
 }

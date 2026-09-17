@@ -74,7 +74,7 @@
 <div class="shell">
   <header>
     <a class="brand" href="/" aria-label="Calendar home"><svg aria-hidden="true" viewBox="0 0 28 28" fill="none"><rect x="3" y="5" width="22" height="20" rx="5" stroke="currentColor" stroke-width="1.7"/><path d="M3 12h22M9 2v6M19 2v6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="m10 18 3 3 6-6" stroke="#285c46" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>Calendar</a>
-    <span class="badge">Find a time. Book it.</span>
+    <span class="badge">Find a time. Make it happen.</span>
   </header>
   <main id="app" aria-busy="false"></main>
   <noscript><p>Enable JavaScript to create a link and run the calendar test.</p></noscript>
@@ -193,7 +193,7 @@ async function run(action, timeoutMs = 45000) {
   }
 }
 const form = button => `<form id="booking-form"><fieldset><label for="booking-url">Your Google booking-page link</label><input id="booking-url" name="booking_page_url" type="url" placeholder="https://calendar.app.google/…" required maxlength="2048" autocomplete="url" spellcheck="false" aria-describedby="preview-note"><button class="submit" type="submit">${button}<span aria-hidden="true">→</span></button></fieldset></form><a class="help" href="/help/google-booking-page" target="_blank" rel="noopener">How do I get my booking-page link?</a><div id="status" class="status" role="status" aria-live="polite" aria-atomic="true" hidden></div>`;
-const note = '<p class="notice" id="preview-note">We find a time offered by both pages and book it on the host’s calendar, using the contact details on your page. Google sends the confirmation. Use a page that belongs to you.</p>';
+const note = '<p class="notice" id="preview-note">We suggest the first shared time from tomorrow in the host’s time zone. Book confirms it using the contact details on your page. Use a page that belongs to you.</p>';
 
 function home() {
   document.title = 'Calendar — Find a time together';
@@ -222,8 +222,11 @@ function home() {
 }
 async function booking(id) {
   document.title = 'Calendar — Find a shared time';
-  app.innerHTML = `<div class="eyebrow">A time for both of you</div><h1>Let’s find a<br>shared time.</h1><p class="intro">Add your Google booking-page link to find a time with this calendar.</p><section class="panel" aria-label="Find a shared time"><div class="meeting"><strong id="meeting-title">Loading meeting…</strong><span id="meeting-duration"></span></div>${form('Find and book a time')}</section>${note}`;
+  app.innerHTML = `<div class="eyebrow">A time for both of you</div><h1>Let’s find a<br>shared time.</h1><p class="intro">Find the first shared time from tomorrow, then confirm with Book.</p><section class="panel" aria-label="Find a shared time"><div class="meeting"><strong id="meeting-title">Loading meeting…</strong><span id="meeting-duration"></span></div>${form('Find a time')}</section>${note}`;
   host = id;
+  document.querySelector('#booking-url').addEventListener('input', () => {
+    if (!active && !bookingLocked) document.querySelector('#status').hidden = true;
+  });
   let saved;
   try { saved = localStorage.getItem(bookingKey()); } catch {
     document.querySelector('fieldset').disabled = true;
@@ -282,14 +285,18 @@ async function booking(id) {
         document.querySelector('#meeting-duration').textContent = result.duration_minutes + ' minutes · ' + result.schedule.timezone;
       }
       if (result.status === 'no_common_slot' && result.slot === null) {
-        outcome('No shared time found', 'No complete host appointment fits the times offered by both pages in the next 30 days. Nothing was booked.', '');
+        outcome('No shared time found', 'No shared appointment was found from tomorrow within the next 30 days. Nothing was booked.', '');
         return;
       }
       const start = new Date(result.slot?.start), end = new Date(result.slot?.end);
       if (result.status !== 'slot_found' || !Number.isFinite(start.getTime()) || !Number.isInteger(result.duration_minutes) || result.duration_minutes < 1 || result.duration_minutes > 1440 || end - start !== result.duration_minutes * 60000) {
         throw new UserError('We could not verify the proposed time. Please try again.');
       }
-      await beginBooking({id:crypto.randomUUID(), host, peer:peer.id, slot:result.slot}, {}, signal);
+      const proposal = {id:crypto.randomUUID(), host, peer:peer.id, slot:result.slot};
+      outcome('A time for both of you', slotLabel(proposal.slot) + ` · ${result.duration_minutes} minutes. Nothing is booked yet.`, 'success');
+      const confirm = document.createElement('button'); confirm.type = 'button'; confirm.textContent = 'Book';
+      confirm.addEventListener('click', () => run(nextSignal => beginBooking(proposal, {}, nextSignal), 180000));
+      document.querySelector('#status').append(confirm);
     }, 180000);
   });
 }
@@ -310,6 +317,10 @@ async function watchBooking(operation, result, signal) {
     }
     if (result.status === 'booked' && result.reserved === true) {
       outcome('Your meeting is booked', slotLabel(result.slot) + '. Check your email for Google’s confirmation and invitation.', 'success');
+      return;
+    }
+    if (result.status === 'confirmation_required') {
+      outcome('Booking request completed', 'The provider finished the booking request for ' + slotLabel(result.slot) + '. Please check Google’s confirmation email and your calendar. We still need to verify this first provider result; do not book again.', '');
       return;
     }
     if (result.status === 'unknown') {

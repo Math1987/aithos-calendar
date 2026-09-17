@@ -158,3 +158,12 @@ calendar reads, Anakin account, real bookings, A2A runtime, or application datab
 An LLM is not needed to resolve links, discover agents, compare offered intervals,
 or submit and verify a booking. Keep these operations deterministic. Natural
 language is an optional future interface to them, not a delivery dependency.
+
+## September 17 update: preview before booking
+
+The shared page first proposes the earliest complete host appointment covered by
+both pages, starting tomorrow in the host's time zone (within the next 30 days).
+Show the date, local time, time zone and duration. A separate **Book** button
+confirms that exact proposal. Reading availability creates no appointment.
+On confirmation, recheck both pages and report a stale slot instead of silently
+booking a different one. Missing visitor contact details are requested only then.

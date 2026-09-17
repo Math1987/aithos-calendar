@@ -65,11 +65,11 @@ Gate 3 implementation and CLI commands: [agent collaboration](agent-collaboratio
 
 Gate 4 implementation, ownership boundaries and acceptance commands: [dynamic agents](dynamic-agents.md).
 
-## Current acceptance: real availability, no booking
+## Current acceptance: real availability accepted; booking pilot
 
 See [live browser test](live-browser-test.md). Gate 5 reads real schedules and uses
-A2A in both directions. Gate 6 remains the next calendar-writing gate after owner
-acceptance: validate one Anakin result, durable submission/status, then enable
-booking in the browser. The usable version has no LLM or Bedrock dependency.
+A2A in both directions. Gate 6 now adds an explicit Book button after proposing the first common slot
+from tomorrow. The first owner-confirmed browser booking is the live validation
+step; inspect its Anakin result before automatic confirmed-success classification. The usable version has no LLM or Bedrock dependency.
 
 Gate 6 implementation and remaining live confirmation prerequisite: [browser booking](booking-browser.md).

@@ -295,8 +295,32 @@ impl AvailabilityReader for GoogleHttpReader {
     }
 }
 
-/// Preserve a complete offered host appointment. Merge only touching/overlapping
-/// peer intervals; never invent a host start or bridge a gap in peer coverage.
+/// Calendar-day policy in the host schedule's IANA zone, not a rolling 24 hours.
+pub fn starts_tomorrow(slot: &Slot, timezone: &str, now: DateTime<Utc>) -> Result<bool, ReadError> {
+    let zone: chrono_tz::Tz = timezone
+        .parse()
+        .map_err(|_| ReadError::UnsupportedResponse)?;
+    Ok(slot.start.with_timezone(&zone).date_naive() > now.with_timezone(&zone).date_naive())
+}
+
+pub fn first_host_slot_from_tomorrow(
+    host: &Schedule,
+    peer: &Schedule,
+    now: DateTime<Utc>,
+) -> Result<Option<Slot>, ReadError> {
+    let mut eligible = host.clone();
+    // Validate even when the host has no slots. Never silently fall back to UTC.
+    let _: chrono_tz::Tz = host
+        .timezone
+        .parse()
+        .map_err(|_| ReadError::UnsupportedResponse)?;
+    eligible
+        .slots
+        .retain(|slot| starts_tomorrow(slot, &host.timezone, now).unwrap_or(false));
+    Ok(first_host_slot(&eligible, peer))
+}
+
+/// Preserve the complete host appointment; merge peer coverage without bridging gaps.
 pub fn first_host_slot(host: &Schedule, peer: &Schedule) -> Option<Slot> {
     let mut coverage = peer.slots.clone();
     coverage.sort_by_key(|s| s.start);
@@ -348,6 +372,59 @@ mod tests {
                 })
                 .collect(),
         }
+    }
+    #[test]
+    fn tomorrow_is_a_host_calendar_day_including_dst_and_different_utc_dates() {
+        let slot = |text: &str| {
+            let start: DateTime<Utc> = text.parse().unwrap();
+            Slot {
+                start,
+                end: start + Duration::minutes(30),
+            }
+        };
+        // At 23:30 in Paris, tomorrow starts thirty minutes later, not in 24 hours.
+        let now = "2026-09-17T21:30:00Z".parse().unwrap();
+        assert!(!starts_tomorrow(&slot("2026-09-17T21:45:00Z"), "Europe/Paris", now).unwrap());
+        assert!(starts_tomorrow(&slot("2026-09-17T22:00:00Z"), "Europe/Paris", now).unwrap());
+        // Midnight following the spring DST transition is only 23 hours later.
+        let spring = "2026-03-28T23:00:00Z".parse().unwrap();
+        assert!(!starts_tomorrow(&slot("2026-03-29T21:30:00Z"), "Europe/Paris", spring).unwrap());
+        assert!(starts_tomorrow(&slot("2026-03-29T22:00:00Z"), "Europe/Paris", spring).unwrap());
+        let west = "2026-09-18T01:00:00Z".parse().unwrap();
+        assert!(
+            !starts_tomorrow(&slot("2026-09-18T06:30:00Z"), "America/Los_Angeles", west).unwrap()
+        );
+        assert!(
+            starts_tomorrow(&slot("2026-09-18T07:00:00Z"), "America/Los_Angeles", west).unwrap()
+        );
+        assert!(starts_tomorrow(&slot("2026-09-18T07:00:00Z"), "invalid/zone", west).is_err());
+    }
+    #[test]
+    fn tomorrow_selection_skips_today_and_keeps_the_earliest_full_shared_slot() {
+        let now: DateTime<Utc> = "2026-09-17T12:00:00Z".parse().unwrap();
+        let mut host = schedule(30, &[]);
+        host.window_start = now;
+        host.window_end = now + Duration::days(30);
+        host.slots = [26, 1, 25]
+            .map(|h| Slot {
+                start: now + Duration::hours(h),
+                end: now + Duration::hours(h) + Duration::minutes(30),
+            })
+            .to_vec();
+        let peer = host.clone();
+        assert_eq!(
+            first_host_slot_from_tomorrow(&host, &peer, now)
+                .unwrap()
+                .unwrap()
+                .start,
+            now + Duration::hours(25)
+        );
+        host.slots.retain(|s| s.start < now + Duration::hours(2));
+        assert!(
+            first_host_slot_from_tomorrow(&host, &peer, now)
+                .unwrap()
+                .is_none()
+        );
     }
     #[test]
     fn preserves_host_grid_and_merges_peer_coverage_without_bridging_gaps() {
