@@ -532,7 +532,11 @@ async function accountPage(sharedHost) {
           await new Promise(resolve=>setTimeout(resolve,3000));
         }
         outcome('Your agent is still working','You can leave this page and return to check the same request.');
-      }catch(error){outcome('Your request needs checking','We could not read its status. Resume this same request to avoid booking twice. '+(accountMessages[error.message]||''));}
+      }catch(error){
+        if(!active?.id&&error.status===400&&['invalid_agent_link','same_account','invalid_request_id'].includes(error.message)) {
+          remember(null);outcome('Check the agent link',accountMessages[error.message]||'Paste the other person’s Aithos agent link.');
+        } else outcome('Your request needs checking','We could not read its status. Resume this same request to avoid booking twice. '+(accountMessages[error.message]||''));
+      }
       finally{lock(false);}
       if(active){const retry=document.createElement('button');retry.textContent='Check progress';retry.onclick=follow;document.querySelector('#status').append(retry);}
     }
