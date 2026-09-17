@@ -242,13 +242,17 @@ async fn status(State(s): State<Arc<Bookings>>, Path(id): Path<String>) -> Respo
         // schema must be validated with the first owner-confirmed browser booking.
         // Keep the job ID for read-only reconciliation; never submit it again.
         Ok(JobStatus::CompletedUnverified(_data)) => r.stage = Stage::ConfirmationRequired,
-        // A failed job may have failed after Google wrote the appointment.
+        Ok(JobStatus::SlotUnavailable) => r.stage = Stage::SlotUnavailable,
+        // Other failures may have happened after Google wrote the appointment.
         Ok(JobStatus::Failed) => r.stage = Stage::Unknown,
         Err(_) => return view(&r),
     }
-    let release = r.stage == Stage::Booked;
+    let release = matches!(r.stage, Stage::Booked | Stage::SlotUnavailable);
     match s.store.save(&r, previous, release).await {
-        Ok(true) => view(&r),
+        Ok(true) => {
+            tracing::info!(target:"calendar::booking",event="booking_outcome",operation_id=%r.id,status=?r.stage);
+            view(&r)
+        }
         _ => error(
             StatusCode::SERVICE_UNAVAILABLE,
             "booking_status_unavailable",

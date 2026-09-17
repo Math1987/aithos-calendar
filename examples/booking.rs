@@ -168,6 +168,13 @@ async fn poll(path: &str) -> Result<(), Error> {
             "Still processing; poll again after {} seconds.",
             retry_after_ms.div_ceil(1000)
         ),
+        JobStatus::SlotUnavailable => {
+            record(
+                &mut file,
+                json!({"state":"failed","code":"slot_unavailable"}),
+            )?;
+            println!("Anakin rejected slot selection as unavailable; no booking confirmed.");
+        }
         JobStatus::Failed => {
             record(&mut file, json!({"state":"failed"}))?;
             println!("Anakin reported failure. Check the calendar before any new attempt.");

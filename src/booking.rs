@@ -232,6 +232,8 @@ pub enum JobStatus {
     /// Must be validated against the requested slot and a booking confirmation
     /// before any application/UI can claim success. Actual schema needs a live test.
     CompletedUnverified(Value),
+    /// Explicit provider rejection before a slot could be selected.
+    SlotUnavailable,
     Failed,
 }
 #[async_trait]
@@ -302,6 +304,14 @@ fn parse_status(body: Value) -> Result<JobStatus, BookingError> {
         Some("completed") if body["data"].is_object() => {
             Ok(JobStatus::CompletedUnverified(body["data"].clone()))
         }
+        Some("failed")
+            if body["credits_used"].as_u64() == Some(0)
+                && body["error"]["code"] == "EXECUTION_FAILED"
+                && body["error"]["message"]
+                    == "[bad_params] The requested slot is no longer available. Please refresh the available slots and try a different one." =>
+        {
+            Ok(JobStatus::SlotUnavailable)
+        }
         Some("failed") => Ok(JobStatus::Failed),
         _ => Err(BookingError::InvalidResponse),
     }
@@ -354,6 +364,20 @@ impl BookingProvider for AnakinBooking {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn only_observed_preselection_rejection_is_safe_to_release() {
+        let original = json!({"status":"failed","credits_used":0,"error":{"code":"EXECUTION_FAILED","message":"[bad_params] The requested slot is no longer available. Please refresh the available slots and try a different one."}});
+        assert!(matches!(
+            parse_status(original.clone()).unwrap(),
+            JobStatus::SlotUnavailable
+        ));
+        let mut other = original.clone();
+        other["error"]["message"] = json!("Could not confirm the slot after submitting");
+        assert!(matches!(parse_status(other).unwrap(), JobStatus::Failed));
+        let mut charged = original;
+        charged["credits_used"] = json!(10);
+        assert!(matches!(parse_status(charged).unwrap(), JobStatus::Failed));
+    }
     #[test]
     fn visitor_identity_reaches_provider_payload_and_missing_fields_are_specific() {
         let page = PageIdentity {

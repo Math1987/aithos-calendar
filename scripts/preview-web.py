@@ -10,7 +10,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--port', type=int, default=3189)
 parser.add_argument('--result', choices=['slot_found', 'no_common_slot', 'error', 'invalid_response'], default='slot_found')
 parser.add_argument('--pending-once', action='store_true')
-parser.add_argument('--booking-result', choices=['booked','confirmation_required','unknown','failed','missing'], default='booked')
+parser.add_argument('--booking-result', choices=['booked','confirmation_required','slot_unavailable','unknown','failed','missing'], default='booked')
 args = parser.parse_args()
 origin = f'http://127.0.0.1:{args.port}'
 root = Path(__file__).resolve().parents[1]

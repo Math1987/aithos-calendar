@@ -327,6 +327,13 @@ async function watchBooking(operation, result, signal) {
       outcome('We couldn’t confirm the booking', 'It may have been booked. Check the confirmation email and both calendars before trying again. Contact us if the outcome is unclear.');
       return;
     }
+    if (result.status === 'slot_unavailable') {
+      outcome('The booking provider rejected this time', 'Anakin reported that it could not select this slot. No booking was confirmed. Google may still display it as available. Check the Google booking page before trying again.');
+      const back = document.createElement('button'); back.type = 'button'; back.textContent = 'Back to available times';
+      back.addEventListener('click', () => { localStorage.removeItem(bookingKey()); location.reload(); });
+      document.querySelector('#status').append(back);
+      return;
+    }
     if (result.status === 'failed') {
       outcome('Booking could not start', 'The booking provider rejected the request. No new booking was submitted by this operation.');
       return;

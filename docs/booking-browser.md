@@ -107,3 +107,33 @@ The live browser test with the two existing Google pages proposed **18 September
 **Book** button. We stopped there. No real booking was submitted by the agent.
 The next manual acceptance is the owner's Book click and checking the resulting
 Google confirmation and Anakin job. Gate 6 remains in manual validation.
+
+## Observed Anakin rejection, 17 September 2026
+
+The first owner-confirmed booking returned `failed`, `EXECUTION_FAILED`, zero
+credits, and the exact message `[bad_params] The requested slot is no longer
+available. Please refresh the available slots and try a different one.`
+Our reader, Google's UI and Anakin's own `gap_schedule_details` subsequently all
+advertised that same 18 September 09:00–09:30 Europe/Paris slot. This points to a
+provider booking-action problem; it does not establish which internal step fails.
+No additional booking was submitted during diagnosis.
+
+Only that exact observed preselection rejection with zero credits is classified
+as `slot_unavailable`. It releases the operation's guards and displays the provider
+rejection explicitly. Other failed jobs remain `unknown` with their locks held.
+The UI does not retry: Back to available times requires a click and starts with
+read-only availability. A repeated POST for the old operation stays terminal.
+
+After deploying this classification, reconcile a previously unknown saved job with:
+
+```sh
+AWS_REGION=eu-west-3 python3 scripts/with-env.py \
+  cargo run --locked --example reconcile_booking -- OPERATION_UUID
+```
+
+The tool rereads the existing provider job, requires the exact known rejection,
+and conditionally updates the operation and deletes only guards it owns. It
+cannot submit a booking. Generic errors, missing jobs and concurrent changes
+leave the operation locked. A provider support report is prepared privately;
+it has not been sent. The live booking gate remains blocked on provider behavior
+and validation of a successful booking confirmation.

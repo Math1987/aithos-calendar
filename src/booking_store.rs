@@ -16,6 +16,7 @@ pub enum Stage {
     ConfirmationRequired,
     Booked,
     Failed,
+    SlotUnavailable,
     Unknown,
 }
 #[derive(Clone, Serialize, Deserialize)]
@@ -35,7 +36,11 @@ pub struct BookingOperation {
 }
 impl BookingOperation {
     fn released_guards(&self) -> usize {
-        if self.stage == Stage::Failed { 3 } else { 2 }
+        if matches!(self.stage, Stage::Failed | Stage::SlotUnavailable) {
+            3
+        } else {
+            2
+        }
     }
     fn guards(&self) -> [String; 3] {
         let mut pair = [&self.host, &self.peer];
@@ -236,7 +241,10 @@ impl BookingStore for DynamoBookingStore {
             .expression_attribute_values(":next", A::N(r.revision.to_string()))
             .expression_attribute_values(":previous", A::N(previous.to_string()));
         // Keep ambiguous operations for reconciliation; only resolved records expire.
-        if matches!(r.stage, Stage::Booked | Stage::Failed) {
+        if matches!(
+            r.stage,
+            Stage::Booked | Stage::Failed | Stage::SlotUnavailable
+        ) {
             update = update
                 .update_expression("SET #r = :r, revision = :next, expires_at = :expiry")
                 .expression_attribute_values(

@@ -60,6 +60,7 @@ struct Provider {
     polls: AtomicUsize,
     unknown: bool,
     completed: std::sync::atomic::AtomicBool,
+    slot_unavailable: std::sync::atomic::AtomicBool,
 }
 #[async_trait]
 impl BookingProvider for Provider {
@@ -73,6 +74,9 @@ impl BookingProvider for Provider {
     }
     async fn status(&self, _: &str) -> Result<JobStatus, BookingError> {
         self.polls.fetch_add(1, Ordering::SeqCst);
+        if self.slot_unavailable.load(Ordering::SeqCst) {
+            return Ok(JobStatus::SlotUnavailable);
+        }
         if self.completed.load(Ordering::SeqCst) {
             return Ok(JobStatus::CompletedUnverified(
                 json!({"provider_result":"unverified"}),
@@ -119,6 +123,7 @@ async fn setup(missing: bool, busy: bool, unknown: bool) -> (Router, Arc<Provide
         polls: AtomicUsize::new(0),
         unknown,
         completed: std::sync::atomic::AtomicBool::new(false),
+        slot_unavailable: std::sync::atomic::AtomicBool::new(false),
     });
     let app = router(Bookings {
         agents,
@@ -235,4 +240,23 @@ async fn first_completed_provider_job_requires_confirmation_without_resubmitting
     }
     assert_eq!(p.writes.load(Ordering::SeqCst), 1);
     assert_eq!(p.polls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn preselection_rejection_is_explicit_and_releases_only_for_new_user_request() {
+    let (app, p, mut input) = setup(false, false, false).await;
+    p.slot_unavailable.store(true, Ordering::SeqCst);
+    assert_eq!(call(&app, "POST", "/bookings", input.clone()).await.0, 202);
+    let path = format!("/bookings/{}", input["id"].as_str().unwrap());
+    let (_, result) = call(&app, "GET", &path, Value::Null).await;
+    assert_eq!(result["status"], "slot_unavailable");
+    assert_eq!(result["reserved"], false);
+    assert_eq!(
+        call(&app, "POST", "/bookings", input.clone()).await.1["status"],
+        "slot_unavailable"
+    );
+    assert_eq!(p.writes.load(Ordering::SeqCst), 1);
+    input["id"] = json!("21234567-89ab-4def-8123-456789abcdef");
+    assert_eq!(call(&app, "POST", "/bookings", input).await.0, 202);
+    assert_eq!(p.writes.load(Ordering::SeqCst), 2);
 }
