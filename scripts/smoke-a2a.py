@@ -70,11 +70,10 @@ def main(catalog_url):
         assert entry["identifier"] == f"urn:aithos:calendar:agent:{tenant}"
         response = send(interface, tenant)
         assert response["result"]["message"]["parts"][0]["text"] == f"Hello from {card['name']}", response
-        if card["version"] == "0.5.0":
-            assert [s["id"] for s in card["skills"]] == ["greeting"]
+        if card["version"] in ("0.5.0", "0.6.0"):
             response = send(interface, tenant, {"operation":"get_availability"})
-            assert "error" in response and "result" not in response
-            print(f"PASS account-linked agent greeting; Calendar operations disabled")
+            assert ("error" in response and "result" not in response) or data(response)["code"] == "a2a_authorization_required"
+            print("PASS account-linked greeting; anonymous Calendar access rejected")
             continue
         availability = data(send(interface, tenant, {"operation": "get_availability"}))
         assert availability["agent"] == entry["identifier"]

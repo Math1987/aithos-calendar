@@ -59,3 +59,7 @@ Terraform state, and generated artifacts out of Git.
 Real Google availability and the Anakin booking transport use separate
 adapters. Public page onboarding requires no user authentication; a pasted page
 does not prove ownership. The website only submits a booking after the visitor clicks Book.
+
+## Connected Google accounts
+
+[Google Calendar booking: setup, architecture and manual test](docs/google-calendar-booking.md).

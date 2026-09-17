@@ -34,7 +34,35 @@ async fn main() -> Result<(), Error> {
             table,
         ));
         let registry = calendar::registry::Registry::new(&std::env::var("REGISTRY_ORIGIN")?)?;
-        let app = calendar::app_with_reader(
+        let private_store: std::sync::Arc<dyn calendar::auth_store::AuthStore> =
+            std::sync::Arc::new(calendar::auth_store::DynamoAuthStore::new(
+                aws_sdk_dynamodb::Client::new(&config),
+                std::env::var("AUTH_TABLE")?,
+            ));
+        let booking_store = std::sync::Arc::new(calendar::booking_store::DynamoBookingStore::new(
+            aws_sdk_dynamodb::Client::new(&config),
+            std::env::var("BOOKINGS_TABLE")?,
+        ));
+        let connected = std::sync::Arc::new(calendar::connected::Connected {
+            calendars: std::sync::Arc::new(calendar::google_calendar::GoogleCalendar::new(
+                private_store.clone(),
+                aws_sdk_kms::Client::new(&config),
+                std::env::var("GOOGLE_TOKEN_KMS_KEY_ID")?,
+                aws_sdk_secretsmanager::Client::new(&config),
+                std::env::var("GOOGLE_OAUTH_CLIENT_SECRET_ID")?,
+                std::env::var("GOOGLE_OAUTH_CLIENT_ID")?,
+            )?),
+            store: private_store.clone(),
+            bookings: booking_store.clone(),
+            agents: store.clone(),
+            directory: std::sync::Arc::new(calendar::discovery::PeerDirectory::new_with_registry(
+                &base_url,
+                &catalog_url,
+                Some(&registry.origin),
+            )?),
+            website: std::env::var("CALENDAR_WEBSITE_URL")?,
+        });
+        let app = calendar::app_with_connector(
             &base_url,
             &catalog_url,
             store.clone(),
@@ -44,12 +72,11 @@ async fn main() -> Result<(), Error> {
             Some(std::sync::Arc::new(
                 calendar::availability::GoogleHttpReader::new()?,
             )),
+            Some(connected.clone()),
         )?;
-        let app = app.merge(calendar::auth::router(calendar::auth::Auth {
-            store: std::sync::Arc::new(calendar::auth_store::DynamoAuthStore::new(
-                aws_sdk_dynamodb::Client::new(&config),
-                std::env::var("AUTH_TABLE")?,
-            )),
+        let auth = calendar::auth::Auth {
+            store: private_store,
+            connected: Some(connected),
             agents: store.clone(),
             provider: std::sync::Arc::new(calendar::google_identity::GoogleIdentity::new(
                 std::env::var("GOOGLE_OAUTH_CLIENT_ID")?,
@@ -64,7 +91,10 @@ async fn main() -> Result<(), Error> {
                 .split(',')
                 .map(|v| v.trim().to_owned())
                 .collect(),
-        }));
+        };
+        let app = app
+            .merge(calendar::auth::router(auth.clone()))
+            .merge(calendar::connected::router(auth));
         if let (Ok(table), Ok(secret_id)) = (
             std::env::var("BOOKINGS_TABLE"),
             std::env::var("ANAKIN_SECRET_ID"),

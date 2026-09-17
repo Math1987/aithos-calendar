@@ -33,26 +33,31 @@ pub struct Auth {
     pub base: String,
     pub website: String,
     pub allowed_emails: Vec<String>,
+    pub connected: Option<Arc<crate::connected::Connected>>,
 }
 #[derive(Clone, Serialize, Deserialize)]
-struct Account {
-    id: String,
-    email: String,
-    name: String,
+pub(crate) struct Account {
+    pub id: String,
+    pub email: String,
+    pub name: String,
 }
 #[derive(Serialize, Deserialize)]
 struct Attempt {
     nonce: String,
     verifier: String,
     host: Option<String>,
+    #[serde(default)]
+    calendar: bool,
+    #[serde(default)]
+    account: Option<String>,
 }
-fn now() -> i64 {
+pub(crate) fn now() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_secs() as i64
 }
-fn random() -> String {
+pub(crate) fn random() -> String {
     let mut bytes = [0; 32];
     OsRng.fill_bytes(&mut bytes);
     a2a_card::canonical::b64url(&bytes)
@@ -89,13 +94,13 @@ fn set_cookie(response: &mut Response, name: &str, value: &str, seconds: i64) {
             .unwrap(),
     );
 }
-fn error(status: StatusCode, code: &'static str) -> Response {
+pub(crate) fn error(status: StatusCode, code: &'static str) -> Response {
     (status, Json(json!({"error":code}))).into_response()
 }
 fn unavailable() -> Response {
     error(StatusCode::SERVICE_UNAVAILABLE, "auth_unavailable")
 }
-async fn private_response(request: Request, next: Next) -> Response {
+pub(crate) async fn private_response(request: Request, next: Next) -> Response {
     let mut response = tokio::time::timeout(Duration::from_secs(22), next.run(request))
         .await
         .unwrap_or_else(|_| unavailable());
@@ -121,8 +126,14 @@ pub fn router(state: Auth) -> Router {
 #[derive(Deserialize)]
 struct Start {
     host: Option<String>,
+    #[serde(default)]
+    calendar: bool,
 }
-async fn start(State(s): State<Arc<Auth>>, Query(input): Query<Start>) -> Response {
+async fn start(
+    State(s): State<Arc<Auth>>,
+    headers: HeaderMap,
+    Query(input): Query<Start>,
+) -> Response {
     if input
         .host
         .as_deref()
@@ -130,16 +141,26 @@ async fn start(State(s): State<Arc<Auth>>, Query(input): Query<Start>) -> Respon
     {
         return error(StatusCode::BAD_REQUEST, "invalid_host");
     }
+    let account = if input.calendar {
+        match current(&s, &headers).await {
+            Ok(a) => Some(a.id),
+            Err(_) => return failed_login(&s, "sign_in_required"),
+        }
+    } else {
+        None
+    };
     let state = random();
     let binding = random();
     let attempt = Attempt {
         nonce: random(),
         verifier: random(),
         host: input.host,
+        calendar: input.calendar,
+        account,
     };
-    let url = s
-        .provider
-        .authorization_url(&state, &attempt.nonce, &attempt.verifier);
+    let url =
+        s.provider
+            .authorization_url(&state, &attempt.nonce, &attempt.verifier, attempt.calendar);
     let row = Entry {
         value: serde_json::to_value(&attempt).unwrap(),
         expires: now() + 600,
@@ -209,6 +230,18 @@ async fn callback(
         return failed_login(&s, "test_account_required");
     }
     let account_key = key("google", &identity.sub);
+    if attempt.calendar {
+        let matching = s
+            .store
+            .get(&account_key, now())
+            .await
+            .ok()
+            .flatten()
+            .is_some_and(|row| row.value["id"].as_str() == attempt.account.as_deref());
+        if !matching {
+            return failed_login(&s, "wrong_google_account");
+        }
+    }
     let account = match s.store.get(&account_key, now()).await {
         Ok(Some(row)) => match serde_json::from_value::<Account>(row.value) {
             Ok(a) => a,
@@ -217,8 +250,8 @@ async fn callback(
         Ok(None) => {
             let candidate = Account {
                 id: random(),
-                email: identity.email,
-                name: identity.name,
+                email: identity.email.clone(),
+                name: identity.name.clone(),
             };
             let row = Entry {
                 value: serde_json::to_value(&candidate).unwrap(),
@@ -239,6 +272,23 @@ async fn callback(
         }
         Err(_) => return unavailable(),
     };
+    if attempt.calendar {
+        let Some(service) = &s.connected else {
+            return failed_login(&s, "calendar_unavailable");
+        };
+        if let Err(code) = service
+            .calendars
+            .connect(
+                &account.id,
+                &identity.email,
+                identity.refresh_token.as_deref(),
+                &identity.scopes,
+            )
+            .await
+        {
+            return failed_login(&s, code);
+        }
+    }
     // Only an opaque random cookie goes to the browser. Its digest is the database key.
     let session = random();
     let row = Entry {
@@ -267,7 +317,7 @@ async fn callback(
     set_cookie(&mut response, SESSION_COOKIE, &session, SESSION_SECONDS);
     response
 }
-async fn current(s: &Auth, headers: &HeaderMap) -> Result<Account, Response> {
+pub(crate) async fn current(s: &Auth, headers: &HeaderMap) -> Result<Account, Response> {
     let token = cookie(headers, SESSION_COOKIE)
         .ok_or_else(|| error(StatusCode::UNAUTHORIZED, "sign_in_required"))?;
     let session = s
@@ -289,12 +339,30 @@ async fn current(s: &Auth, headers: &HeaderMap) -> Result<Account, Response> {
 }
 async fn me(State(s): State<Arc<Auth>>, headers: HeaderMap) -> Response {
     match current(&s, &headers).await {
-        Ok(a) => Json(json!({"id":a.id,"name":a.name,"email":a.email,"calendar_connected":false}))
-            .into_response(),
+        Ok(a) => {
+            let connected = match &s.connected {
+                Some(c) => match c.calendars.connected(&a.id).await {
+                    Ok(v) => v,
+                    Err(_) => return unavailable(),
+                },
+                None => false,
+            };
+            let pending = match &s.connected {
+                Some(c) => match c.bookings.active(&a.id).await {
+                    Ok(r) => r
+                        .filter(|r| r.schedule_id == "google" && r.peer == a.id)
+                        .map(|r| r.id),
+                    Err(_) => return unavailable(),
+                },
+                None => None,
+            };
+            Json(json!({"id":a.id,"name":a.name,"email":a.email,"calendar_connected":connected,"pending_booking_id":pending}))
+                .into_response()
+        }
         Err(e) => e,
     }
 }
-fn origin_ok(s: &Auth, headers: &HeaderMap) -> bool {
+pub(crate) fn origin_ok(s: &Auth, headers: &HeaderMap) -> bool {
     headers.get(header::ORIGIN).and_then(|v| v.to_str().ok()) == Some(s.website.as_str())
 }
 async fn logout(State(s): State<Arc<Auth>>, headers: HeaderMap) -> Response {
@@ -346,11 +414,18 @@ async fn agent(State(s): State<Arc<Auth>>, headers: HeaderMap) -> Response {
     if !record.agent.google_account || record.booking_page_url.is_some() {
         return error(StatusCode::CONFLICT, "agent_identity_conflict");
     }
-    if !record.published && s.registry.publish(&record).await.is_ok() {
-        if s.agents.publish(&record.agent.id).await.is_err() {
-            return unavailable();
+    if !record.published {
+        match s.registry.publish(&record).await {
+            Ok(()) => {
+                if s.agents.publish(&record.agent.id).await.is_err() {
+                    return unavailable();
+                }
+                record.published = true;
+            }
+            Err(code) => {
+                tracing::warn!(event="account_publication_pending",tenant=%record.agent.id,code)
+            }
         }
-        record.published = true;
     }
     (if record.published { StatusCode::OK } else { StatusCode::ACCEPTED }, Json(json!({
         "id":record.agent.id, "identifier":record.agent.identifier(), "agent_card_url":record.card_url,

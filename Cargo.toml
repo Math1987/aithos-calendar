@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 a2a-client = { package = "a2a-client-lf", version = "=0.2.5" }
-reqwest = { version = "=0.13.5", default-features = false, features = ["json", "rustls"] }
+reqwest = { version = "=0.13.5", default-features = false, features = ["json", "rustls", "form"] }
 serde = { version = "=1.0.229", features = ["derive"] }
 chrono = { version = "=0.4.45", default-features = false, features = ["serde", "std"] }
 uuid = "=1.26.1"
@@ -31,6 +31,7 @@ p256 = { version = "=0.13.2", features = ["ecdsa"] }
 rand_core = { version = "=0.6.4", features = ["getrandom"] }
 sha2 = "=0.10.9"
 regex = "=1.13.1"
+aws-sdk-kms = { version = "=1.120.0", default-features = false, features = ["rt-tokio", "default-https-client"] }
 aws-sdk-secretsmanager = { version = "=1.117.0", default-features = false, features = ["rt-tokio", "default-https-client"] }
 chrono-tz = "=0.10.4"
 

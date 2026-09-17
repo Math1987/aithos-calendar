@@ -63,6 +63,7 @@ pub struct StoreError;
 #[async_trait]
 pub trait BookingStore: Send + Sync {
     async fn get(&self, id: &str) -> Result<Option<BookingOperation>, StoreError>;
+    async fn active(&self, agent: &str) -> Result<Option<BookingOperation>, StoreError>;
     /// Atomic operation + two agent locks + persistent pair/slot duplicate guard.
     async fn begin(&self, record: &BookingOperation) -> Result<bool, StoreError>;
     /// CAS on revision; release agent locks only after a known terminal result.
@@ -82,6 +83,13 @@ struct Memory {
 pub struct MemoryBookingStore(Mutex<Memory>);
 #[async_trait]
 impl BookingStore for MemoryBookingStore {
+    async fn active(&self, agent: &str) -> Result<Option<BookingOperation>, StoreError> {
+        let s = self.0.lock().map_err(|_| StoreError)?;
+        Ok(s.guards
+            .get(&format!("agent:{agent}"))
+            .and_then(|id| s.records.get(id))
+            .cloned())
+    }
     async fn get(&self, id: &str) -> Result<Option<BookingOperation>, StoreError> {
         Ok(self
             .0
@@ -142,6 +150,28 @@ impl DynamoBookingStore {
 }
 #[async_trait]
 impl BookingStore for DynamoBookingStore {
+    async fn active(&self, agent: &str) -> Result<Option<BookingOperation>, StoreError> {
+        let out = self
+            .client
+            .get_item()
+            .table_name(&self.table)
+            .key("id", A::S(format!("agent:{agent}")))
+            .consistent_read(true)
+            .projection_expression("#o")
+            .expression_attribute_names("#o", "owner")
+            .send()
+            .await
+            .map_err(|_| StoreError)?;
+        let id = out
+            .item
+            .as_ref()
+            .and_then(|item| item.get("owner"))
+            .and_then(|v| v.as_s().ok());
+        match id {
+            Some(id) => self.get(id).await,
+            None => Ok(None),
+        }
+    }
     async fn get(&self, id: &str) -> Result<Option<BookingOperation>, StoreError> {
         let out = self
             .client

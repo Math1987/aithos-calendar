@@ -25,7 +25,13 @@ struct TestGoogle {
 }
 #[async_trait::async_trait]
 impl IdentityProvider for TestGoogle {
-    fn authorization_url(&self, state: &str, nonce: &str, verifier: &str) -> String {
+    fn authorization_url(
+        &self,
+        state: &str,
+        nonce: &str,
+        verifier: &str,
+        _calendar: bool,
+    ) -> String {
         assert!(token_valid(nonce));
         assert!(token_valid(verifier));
         format!("https://accounts.google.com/auth?state={state}")
@@ -51,6 +57,8 @@ impl IdentityProvider for TestGoogle {
             }
             .into(),
             name: "Private Person".into(),
+            refresh_token: None,
+            scopes: vec![],
         })
     }
 }
@@ -93,6 +101,7 @@ async fn fixture() -> (Auth, Arc<TestGoogle>, tokio::task::JoinHandle<()>) {
             base: "https://api.calendar.test".into(),
             website: "https://calendar.test".into(),
             allowed_emails: vec!["test@example.com".into()],
+            connected: None,
         },
         provider,
         task,
@@ -187,7 +196,7 @@ async fn login_reuses_account_and_agent_without_exposing_identity() {
     assert!(!record.card_bytes.contains("subject-one"));
     assert!(!record.card_bytes.contains("Private Person"));
     let card: Value = serde_json::from_str(&record.card_bytes).unwrap();
-    assert_eq!(card["skills"].as_array().unwrap().len(), 1);
+    assert_eq!(card["skills"].as_array().unwrap().len(), 3);
     assert_eq!(card["skills"][0]["id"], "greeting");
     let protocol = crate::app_with_store(
         &s.base,
@@ -382,5 +391,50 @@ async fn simultaneous_logins_share_one_identity_and_retry_publication() {
     let again = value(call(&down, "/auth/agent", "POST", Some(&a), Some(&s.website)).await).await;
     assert_eq!(pending["id"], again["id"]);
     assert_eq!(pending["agent_card_url"], again["agent_card_url"]);
+    server.abort();
+}
+
+#[tokio::test]
+async fn calendar_consent_requires_session_and_rejects_account_switching() {
+    let (s, _, server) = fixture().await;
+    let missing = call(&s, "/auth/google/start?calendar=true", "GET", None, None).await;
+    assert_eq!(
+        missing.headers()[header::LOCATION],
+        "https://calendar.test/account?error=sign_in_required"
+    );
+    let existing = login(&s, "subject-one").await;
+    let before = value(call(&s, "/auth/me", "GET", Some(&existing), None).await).await;
+    let start = call(
+        &s,
+        "/auth/google/start?calendar=true",
+        "GET",
+        Some(&existing),
+        None,
+    )
+    .await;
+    let url = reqwest::Url::parse(start.headers()[header::LOCATION].to_str().unwrap()).unwrap();
+    let state = url
+        .query_pairs()
+        .find(|(k, _)| k == "state")
+        .unwrap()
+        .1
+        .into_owned();
+    let binding = response_cookie(&start, LOGIN_COOKIE);
+    let response = call(
+        &s,
+        &format!("/auth/google/callback?state={state}&code=another-subject"),
+        "GET",
+        Some(&format!("{binding}; {existing}")),
+        None,
+    )
+    .await;
+    assert_eq!(
+        response.headers()[header::LOCATION],
+        "https://calendar.test/account?error=wrong_google_account"
+    );
+    assert_eq!(
+        value(call(&s, "/auth/me", "GET", Some(&existing), None).await).await,
+        before
+    );
     server.abort();
 }

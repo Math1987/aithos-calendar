@@ -91,3 +91,7 @@ The next gates replace the public-page provider path for authenticated accounts:
 
 No LLM is required for the first three gates. Anonymous page identities are not
 automatically migrated or assigned to a Google account.
+
+The connected-account Calendar and booking gates are implemented together. See
+[Google Calendar manual acceptance and boundaries](google-calendar-booking.md).
+The live two-account consent and real meeting test remain manual acceptance.

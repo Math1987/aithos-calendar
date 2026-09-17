@@ -75,6 +75,28 @@ impl Registry {
         }
         Ok(updated)
     }
+    /// Operator-only account-card upgrade; preserves the original signing identity.
+    pub fn upgrade_account(
+        &self,
+        record: &Record,
+        encoded_key: &str,
+        base: &str,
+    ) -> Result<Record, lambda_http::Error> {
+        if !record.agent.google_account || record.booking_page_url.is_some() {
+            return Err("Not an account-linked agent".into());
+        }
+        let previous: serde_json::Value = serde_json::from_str(&record.card_bytes)?;
+        if previous["version"] != "0.5.0" {
+            return Err("Unsupported account-card version".into());
+        }
+        let bytes = a2a_card::canonical::b64url_decode(encoded_key)?;
+        let key = SigningKey::from_slice(&bytes).map_err(|_| "Invalid recovery key")?;
+        let (updated, _) = self.prepare_signed(record.agent.clone(), None, base, key)?;
+        if updated.registry_id != record.registry_id || updated.card_url != record.card_url {
+            return Err("Recovery key differs from existing identity".into());
+        }
+        Ok(updated)
+    }
     fn prepare_signed(
         &self,
         agent: Agent,
@@ -93,6 +115,39 @@ impl Registry {
         }
         let header = b64url(&canonicalize(&header_fields)?);
         let mut card = serde_json::to_value(agent.card(base))?;
+        // SDK 0.3.1 serializes requirements as OpenAPI maps; the A2A 1.0
+        // wire schema uses schemes -> StringList. Normalize before signing.
+        fn wire_requirements(v: &mut serde_json::Value) {
+            if let Some(requirements) = v
+                .get_mut("securityRequirements")
+                .and_then(|r| r.as_array_mut())
+            {
+                for requirement in requirements {
+                    if let Some(map) = requirement.as_object() {
+                        let schemes: serde_json::Map<String, serde_json::Value> = map
+                            .iter()
+                            .map(|(k, v)| {
+                                (
+                                    k.clone(),
+                                    if v.as_array().is_some_and(Vec::is_empty) {
+                                        json!({})
+                                    } else {
+                                        json!({"list":v})
+                                    },
+                                )
+                            })
+                            .collect();
+                        *requirement = json!({"schemes":schemes});
+                    }
+                }
+            }
+        }
+        wire_requirements(&mut card);
+        if let Some(skills) = card.get_mut("skills").and_then(|s| s.as_array_mut()) {
+            for skill in skills {
+                wire_requirements(skill);
+            }
+        }
         let payload = canonicalize(&card)?;
         let signature: Signature = key.sign(&signing_input(&header, &payload));
         card["signatures"] =
@@ -161,5 +216,28 @@ impl Registry {
             return Err("registry_card_mismatch");
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod account_tests {
+    use super::*;
+    #[test]
+    fn account_card_uses_a2a_wire_security_schema() {
+        let registry = Registry::new("https://registry.example.com").unwrap();
+        let agent = Agent {
+            id: "test".into(),
+            name: "Test".into(),
+            google_account: true,
+            live: false,
+            slots: vec![],
+        };
+        let (r, _) = registry
+            .prepare(agent, None, "https://api.example.com")
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_str(&r.card_bytes).unwrap();
+        assert!(
+            v["skills"][1]["securityRequirements"][0]["schemes"]["calendarOperation"].is_object()
+        );
     }
 }

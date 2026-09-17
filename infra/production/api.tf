@@ -28,6 +28,7 @@ resource "aws_lambda_function" "health" {
       BOOKINGS_TABLE                = aws_dynamodb_table.bookings.name
       ANAKIN_SECRET_ID              = "calendar/production/anakin"
       AUTH_TABLE                    = aws_dynamodb_table.auth.name
+      GOOGLE_TOKEN_KMS_KEY_ID       = "alias/calendar-production-google-tokens"
       GOOGLE_OAUTH_CLIENT_ID        = "235708078636-686f8i71em5mmsn1b29prrfv4tl8gpt3.apps.googleusercontent.com"
       GOOGLE_OAUTH_REDIRECT_URI     = "https://${local.api_domain}/auth/google/callback"
       GOOGLE_OAUTH_CLIENT_SECRET_ID = "calendar/production/google-oauth-client"
@@ -97,17 +98,20 @@ resource "aws_apigatewayv2_api_mapping" "api" {
 # Discovery and A2A share the existing function and integration.
 locals {
   agent_routes = {
-    auth_start     = { method = "GET", path = "/auth/google/start", invoke_path = "/auth/google/start" }
-    auth_callback  = { method = "GET", path = "/auth/google/callback", invoke_path = "/auth/google/callback" }
-    auth_me        = { method = "GET", path = "/auth/me", invoke_path = "/auth/me" }
-    auth_logout    = { method = "POST", path = "/auth/logout", invoke_path = "/auth/logout" }
-    auth_agent     = { method = "POST", path = "/auth/agent", invoke_path = "/auth/agent" }
-    catalog        = { method = "GET", path = "/.well-known/ai-catalog.json", invoke_path = "/.well-known/ai-catalog.json" }
-    schedule       = { method = "GET", path = "/agents/{tenant}/schedule", invoke_path = "/agents/*/schedule" }
-    cards          = { method = "GET", path = "/agents/{tenant}/agent-card.json", invoke_path = "/agents/*/agent-card.json" }
-    book           = { method = "POST", path = "/bookings", invoke_path = "/bookings" }
-    booking_status = { method = "GET", path = "/bookings/{id}", invoke_path = "/bookings/*" }
-    a2a            = { method = "POST", path = "/a2a", invoke_path = "/a2a" }
+    calendar_propose    = { method = "POST", path = "/calendar/proposals", invoke_path = "/calendar/proposals" }
+    calendar_book       = { method = "POST", path = "/calendar/bookings", invoke_path = "/calendar/bookings" }
+    calendar_disconnect = { method = "POST", path = "/calendar/disconnect", invoke_path = "/calendar/disconnect" }
+    auth_start          = { method = "GET", path = "/auth/google/start", invoke_path = "/auth/google/start" }
+    auth_callback       = { method = "GET", path = "/auth/google/callback", invoke_path = "/auth/google/callback" }
+    auth_me             = { method = "GET", path = "/auth/me", invoke_path = "/auth/me" }
+    auth_logout         = { method = "POST", path = "/auth/logout", invoke_path = "/auth/logout" }
+    auth_agent          = { method = "POST", path = "/auth/agent", invoke_path = "/auth/agent" }
+    catalog             = { method = "GET", path = "/.well-known/ai-catalog.json", invoke_path = "/.well-known/ai-catalog.json" }
+    schedule            = { method = "GET", path = "/agents/{tenant}/schedule", invoke_path = "/agents/*/schedule" }
+    cards               = { method = "GET", path = "/agents/{tenant}/agent-card.json", invoke_path = "/agents/*/agent-card.json" }
+    book                = { method = "POST", path = "/bookings", invoke_path = "/bookings" }
+    booking_status      = { method = "GET", path = "/bookings/{id}", invoke_path = "/bookings/*" }
+    a2a                 = { method = "POST", path = "/a2a", invoke_path = "/a2a" }
   }
 }
 

@@ -46,10 +46,13 @@ impl Agent {
     pub fn card(&self, base_url: &str) -> AgentCard {
         if self.google_account {
             return serde_json::from_value(json!({
-                "name":self.name, "description":"Account-linked Calendar agent. Google sign-in is configured; calendar availability and booking are not enabled yet.",
-                "version":"0.5.0", "supportedInterfaces":[{"url":format!("{base_url}/a2a"),"protocolBinding":"JSONRPC","protocolVersion":"1.0","tenant":self.id}],
-                "capabilities":{}, "defaultInputModes":["text/plain"], "defaultOutputModes":["text/plain"],
-                "skills":[{"id":"greeting","name":"Greeting","description":"Returns a greeting. No calendar access or booking yet.","tags":["greeting"]}]
+                "name":self.name, "description":"Account-linked Google Calendar agent. Availability and booking require a short-lived operation capability issued by this service.",
+                "version":"0.6.0", "supportedInterfaces":[{"url":format!("{base_url}/a2a"),"protocolBinding":"JSONRPC","protocolVersion":"1.0","tenant":self.id}],
+                "capabilities":{}, "defaultInputModes":["text/plain","application/json"], "defaultOutputModes":["text/plain","application/json"],
+                "securitySchemes":{"calendarOperation":{"httpAuthSecurityScheme":{"scheme":"Bearer","description":"Short-lived capability bound to the caller, recipient and exact operation; issued internally after browser authorization."}}},
+                "skills":[{"id":"greeting","name":"Greeting","description":"Returns a public greeting.","tags":["greeting"]},
+                {"id":"get_availability","name":"Calendar availability","description":"Reads free intervals on the connected primary calendar during weekdays 09:00–18:00, within a 30-day window.","tags":["calendar","availability"],"inputModes":["application/json"],"securityRequirements":[{"schemes":{"calendarOperation":{"list":[]}}}]},
+                {"id":"commit_booking","name":"Confirm a meeting","description":"Creates or reconciles a confirmed, server-stored booking using a deterministic event ID.","tags":["calendar","booking"],"inputModes":["application/json"],"securityRequirements":[{"schemes":{"calendarOperation":{"list":[]}}}]}]
             })).expect("account card matches SDK schema");
         }
         if self.live {

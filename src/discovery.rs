@@ -141,6 +141,124 @@ impl PeerDirectory {
         serde_json::from_slice(&bytes).map_err(|_| failure)
     }
 
+    pub async fn account_call(
+        &self,
+        peer: &str,
+        token: &str,
+        operation: serde_json::Value,
+    ) -> Result<serde_json::Value, PeerError> {
+        let catalog: AiCatalog = self
+            .fetch(self.catalog_url.clone(), PeerError::DiscoveryUnavailable)
+            .await?;
+        if catalog.spec_version != "1.0"
+            || catalog
+                .entries
+                .iter()
+                .filter(|e| e.identifier == peer)
+                .count()
+                > 1
+        {
+            return Err(PeerError::DiscoveryUnavailable);
+        }
+        let entry = catalog.get_by_id(peer).ok_or(PeerError::NotFound)?;
+        if entry.entry_type != "application/a2a-agent-card+json" {
+            return Err(PeerError::InvalidCard);
+        }
+        let url = self.trusted_url(entry.url.as_deref().ok_or(PeerError::InvalidCard)?, true)?;
+        let mut raw: serde_json::Value = self.fetch(url, PeerError::InvalidCard).await?;
+        // A2A canonical JSON omits empty StringList.list. SDK 0.3.1's reader
+        // expects it; adapt only the in-memory client view, never signed bytes.
+        fn sdk_requirements(v: &mut serde_json::Value) {
+            if let Some(requirements) = v
+                .get_mut("securityRequirements")
+                .and_then(|r| r.as_array_mut())
+            {
+                for r in requirements {
+                    if let Some(schemes) = r.get_mut("schemes").and_then(|s| s.as_object_mut()) {
+                        for value in schemes.values_mut() {
+                            if value.as_object().is_some_and(|v| v.is_empty()) {
+                                *value = json!({"list":[]});
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        sdk_requirements(&mut raw);
+        if let Some(skills) = raw.get_mut("skills").and_then(|s| s.as_array_mut()) {
+            for skill in skills {
+                sdk_requirements(skill);
+            }
+        }
+        let mut card: AgentCard =
+            serde_json::from_value(raw).map_err(|_| PeerError::InvalidCard)?;
+        let tenant = peer
+            .strip_prefix("urn:aithos:calendar:agent:")
+            .ok_or(PeerError::InvalidCard)?;
+        card.supported_interfaces.retain(|i| {
+            i.protocol_binding == "JSONRPC"
+                && i.tenant.as_deref() == Some(tenant)
+                && i.url == format!("{}/a2a", self.agent_origin.as_str().trim_end_matches('/'))
+        });
+        if card.supported_interfaces.is_empty() {
+            return Err(PeerError::InvalidCard);
+        }
+        tracing::info!(
+            event = "connected_peer_call",
+            peer,
+            recipient_tenant = tenant,
+            operation = operation["operation"].as_str()
+        );
+        let mut headers = reqwest::header::HeaderMap::new();
+        let mut value = reqwest::header::HeaderValue::from_str(&format!("Bearer {token}"))
+            .map_err(|_| PeerError::Unavailable)?;
+        value.set_sensitive(true);
+        headers.insert(reqwest::header::AUTHORIZATION, value);
+        let http = Client::builder()
+            .default_headers(headers)
+            .redirect(reqwest::redirect::Policy::none())
+            .timeout(Duration::from_secs(14))
+            .connect_timeout(Duration::from_secs(2))
+            .build()
+            .map_err(|_| PeerError::Unavailable)?;
+        let factory = A2AClientFactory::builder()
+            .no_defaults()
+            .with_interceptor(Arc::new(a2a_client::middleware::LoggingInterceptor))
+            .register(Arc::new(JsonRpcTransportFactory::new(Some(http))))
+            .build();
+        let client = factory
+            .create_from_card(&card)
+            .await
+            .map_err(|_| PeerError::InvalidCard)?;
+        let request = SendMessageRequest {
+            tenant: None,
+            message: Message::new(Role::User, vec![Part::data(operation)]),
+            configuration: None,
+            metadata: None,
+        };
+        let reply = client
+            .send_message(&request)
+            .await
+            .map_err(|_| PeerError::Unavailable)?;
+        let SendMessageResponse::Message(message) = reply else {
+            return Err(PeerError::InvalidResponse);
+        };
+        if message.role != Role::Agent {
+            return Err(PeerError::InvalidResponse);
+        }
+        message
+            .parts
+            .iter()
+            .find_map(|p| {
+                if let PartContent::Data(v) = &p.content {
+                    Some(v.clone())
+                } else {
+                    None
+                }
+            })
+            .ok_or(PeerError::InvalidResponse)
+    }
+
     pub async fn availability(
         &self,
         peer: &str,
@@ -163,7 +281,20 @@ impl PeerDirectory {
         {
             return Err(PeerError::InvalidCard);
         }
+        if catalog.spec_version != "1.0"
+            || catalog
+                .entries
+                .iter()
+                .filter(|e| e.identifier == peer)
+                .count()
+                > 1
+        {
+            return Err(PeerError::DiscoveryUnavailable);
+        }
         let entry = catalog.get_by_id(peer).ok_or(PeerError::NotFound)?;
+        if entry.entry_type != "application/a2a-agent-card+json" {
+            return Err(PeerError::InvalidCard);
+        }
         if entry.entry_type != "application/a2a-agent-card+json" {
             return Err(PeerError::InvalidCard);
         }

@@ -19,6 +19,7 @@ pub struct AuthStoreError;
 #[async_trait]
 pub trait AuthStore: Send + Sync {
     async fn create(&self, id: &str, entry: Entry) -> Result<bool, AuthStoreError>;
+    async fn put(&self, id: &str, entry: Entry) -> Result<(), AuthStoreError>;
     async fn get(&self, id: &str, now: i64) -> Result<Option<Entry>, AuthStoreError>;
     /// Consume a browser-bound login attempt once, atomically, only before its expiry.
     async fn consume(
@@ -40,6 +41,13 @@ impl AuthStore for MemoryAuthStore {
         }
         rows.insert(id.into(), entry);
         Ok(true)
+    }
+    async fn put(&self, id: &str, entry: Entry) -> Result<(), AuthStoreError> {
+        self.0
+            .lock()
+            .map_err(|_| AuthStoreError)?
+            .insert(id.into(), entry);
+        Ok(())
     }
     async fn get(&self, id: &str, now: i64) -> Result<Option<Entry>, AuthStoreError> {
         Ok(self
@@ -115,6 +123,23 @@ impl AuthStore for DynamoAuthStore {
             }
             Err(_) => Err(AuthStoreError),
         }
+    }
+    async fn put(&self, id: &str, entry: Entry) -> Result<(), AuthStoreError> {
+        let mut request = self
+            .client
+            .put_item()
+            .table_name(&self.table)
+            .item("id", AttributeValue::S(id.into()))
+            .item(
+                "record",
+                AttributeValue::S(serde_json::to_string(&entry).map_err(|_| AuthStoreError)?),
+            )
+            .item("binding", AttributeValue::S(entry.binding));
+        if entry.expires > 0 {
+            request = request.item("expires_at", AttributeValue::N(entry.expires.to_string()));
+        }
+        request.send().await.map_err(|_| AuthStoreError)?;
+        Ok(())
     }
     async fn get(&self, id: &str, now: i64) -> Result<Option<Entry>, AuthStoreError> {
         let result = self

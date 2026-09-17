@@ -14,6 +14,7 @@ use std::time::Duration;
 /// Immediate messages only: no task store or work left running after a response.
 pub struct CalendarHandler {
     pub directory: PeerDirectory,
+    pub connected: Option<std::sync::Arc<crate::connected::Connected>>,
     pub reader: Option<std::sync::Arc<dyn crate::availability::AvailabilityReader>>,
     pub store: std::sync::Arc<dyn crate::storage::AgentStore>,
 }
@@ -175,6 +176,7 @@ impl CalendarHandler {
         &self,
         req: SendMessageRequest,
         trace_id: &str,
+        params: &ServiceParams,
     ) -> Result<SendMessageResponse, A2AError> {
         let agent = self.agent(req.tenant.as_deref()).await?;
         if req.message.role != Role::User
@@ -208,9 +210,27 @@ impl CalendarHandler {
             )));
         }
         if agent.google_account {
-            return Err(A2AError::unsupported_operation(
-                "Calendar access is not enabled for this account yet",
-            ));
+            let Some(service) = &self.connected else {
+                return Err(A2AError::unsupported_operation(
+                    "Calendar connector not configured",
+                ));
+            };
+            let [
+                Part {
+                    content: PartContent::Data(data),
+                    ..
+                },
+            ] = req.message.parts.as_slice()
+            else {
+                return Err(A2AError::content_type_not_supported());
+            };
+            return match service.handle(&agent.id, params, data).await {
+                Ok(data) => Ok(structured_reply("Calendar agent response", data)),
+                Err(code) => Ok(structured_reply(
+                    "Calendar operation could not be completed",
+                    json!({"status":"error","code":code}),
+                )),
+            };
         }
         let [
             Part {
@@ -322,7 +342,7 @@ impl CalendarHandler {
 impl RequestHandler for CalendarHandler {
     async fn send_message(
         &self,
-        _params: &ServiceParams,
+        params: &ServiceParams,
         req: SendMessageRequest,
     ) -> Result<SendMessageResponse, A2AError> {
         let trace_id = req
@@ -338,7 +358,7 @@ impl RequestHandler for CalendarHandler {
             methods::SEND_MESSAGE,
             tenant.as_deref(),
             &trace_id,
-            self.handle_message(req, &trace_id),
+            self.handle_message(req, &trace_id, params),
         )
         .await
     }

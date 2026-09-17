@@ -1,4 +1,4 @@
-//! OIDC verifies Google identity. Gate 1 intentionally retains no Google tokens.
+//! OIDC verifies identity; explicit incremental consent may also return Calendar credentials.
 use async_trait::async_trait;
 use openidconnect::{
     core::{CoreClient, CoreProviderMetadata},
@@ -10,10 +10,13 @@ pub struct VerifiedIdentity {
     pub sub: String,
     pub email: String,
     pub name: String,
+    pub refresh_token: Option<String>,
+    pub scopes: Vec<String>,
 }
 #[async_trait]
 pub trait IdentityProvider: Send + Sync {
-    fn authorization_url(&self, state: &str, nonce: &str, verifier: &str) -> String;
+    fn authorization_url(&self, state: &str, nonce: &str, verifier: &str, calendar: bool)
+    -> String;
     async fn verify(
         &self,
         code: &str,
@@ -52,7 +55,13 @@ impl GoogleIdentity {
 }
 #[async_trait]
 impl IdentityProvider for GoogleIdentity {
-    fn authorization_url(&self, state: &str, nonce: &str, verifier: &str) -> String {
+    fn authorization_url(
+        &self,
+        state: &str,
+        nonce: &str,
+        verifier: &str,
+        calendar: bool,
+    ) -> String {
         // Authorization endpoint is fixed; discovery/JWKS is fetched for each callback.
         let challenge =
             PkceCodeChallenge::from_code_verifier_sha256(&PkceCodeVerifier::new(verifier.into()));
@@ -68,6 +77,23 @@ impl IdentityProvider for GoogleIdentity {
             ("code_challenge_method", "S256"),
             ("prompt", "select_account"),
         ]);
+        if calendar {
+            url.query_pairs_mut()
+                .append_pair("access_type", "offline")
+                .append_pair("include_granted_scopes", "true")
+                .append_pair("prompt", "consent select_account");
+            // Replace identity-only scope/prompt instead of emitting duplicate parameters.
+            let pairs: Vec<(String, String)> = url
+                .query_pairs()
+                .filter(|(k, _)| k != "scope" && k != "prompt")
+                .map(|(k, v)| (k.into_owned(), v.into_owned()))
+                .collect();
+            url.set_query(None);
+            url.query_pairs_mut()
+                .extend_pairs(pairs)
+                .append_pair("scope", crate::google_calendar::SCOPES)
+                .append_pair("prompt", "consent select_account");
+        }
         url.into()
     }
     async fn verify(
@@ -150,7 +176,13 @@ impl IdentityProvider for GoogleIdentity {
             .map_err(|_| "google_login_failed")?;
         let token = tokens.id_token().ok_or("google_login_failed")?;
         let verifier = client.id_token_verifier();
-        verify_token(token, &verifier, nonce, tokens.access_token())
+        let mut identity = verify_token(token, &verifier, nonce, tokens.access_token())?;
+        identity.refresh_token = tokens.refresh_token().map(|t| t.secret().clone());
+        identity.scopes = tokens
+            .scopes()
+            .map(|s| s.iter().map(|s| s.as_str().to_owned()).collect())
+            .unwrap_or_default();
+        Ok(identity)
     }
 }
 fn verify_token(
@@ -193,6 +225,8 @@ fn verify_token(
         sub: claims.subject().as_str().into(),
         email,
         name,
+        refresh_token: None,
+        scopes: vec![],
     })
 }
 

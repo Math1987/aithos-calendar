@@ -7,7 +7,9 @@ pub mod booking;
 pub mod booking_api;
 pub mod booking_page;
 pub mod booking_store;
-mod discovery;
+pub mod connected;
+pub mod discovery;
+pub mod google_calendar;
 pub mod google_identity;
 pub mod identities;
 pub mod logging;
@@ -85,6 +87,28 @@ pub fn app_with_reader(
     pages: Arc<dyn booking_page::BookingPages>,
     reader: Option<Arc<dyn availability::AvailabilityReader>>,
 ) -> Result<Router, lambda_http::Error> {
+    app_with_connector(
+        base_url,
+        catalog_url,
+        store,
+        registry,
+        website,
+        pages,
+        reader,
+        None,
+    )
+}
+#[allow(clippy::too_many_arguments)]
+pub fn app_with_connector(
+    base_url: &str,
+    catalog_url: &str,
+    store: Arc<dyn storage::AgentStore>,
+    registry: Option<registry::Registry>,
+    website: String,
+    pages: Arc<dyn booking_page::BookingPages>,
+    reader: Option<Arc<dyn availability::AvailabilityReader>>,
+    connected: Option<Arc<connected::Connected>>,
+) -> Result<Router, lambda_http::Error> {
     let directory = discovery::PeerDirectory::new_with_registry(
         base_url,
         catalog_url,
@@ -110,6 +134,7 @@ pub fn app_with_reader(
         .with_state(state);
     let protocol = a2a_server::jsonrpc::jsonrpc_router(Arc::new(a2a::CalendarHandler {
         directory,
+        connected,
         store,
         reader,
     }));
@@ -133,7 +158,7 @@ async fn catalog(State(state): State<Arc<Identities>>) -> Response {
     records.sort_by(|a, b| a.agent.id.cmp(&b.agent.id));
     let value = json!({"specVersion":"1.0", "host":{"displayName":"Calendar agents"}, "entries":records.iter().map(|r| json!({
         "identifier":r.agent.identifier(),"displayName":r.agent.name,"type":"application/a2a-agent-card+json",
-        "url":r.card_url,"description":if r.agent.google_account {"Account-linked agent; calendar access not yet enabled."} else if r.agent.live {"Real public availability; no booking."} else {"Mock scheduling agent; no calendar access or booking."},"tags":if r.agent.google_account {vec!["calendar","account"]} else if r.agent.live {vec!["calendar","availability"]} else {vec!["calendar","mock"]}
+        "url":r.card_url,"description":if r.agent.google_account {"Account-linked Google Calendar agent; operation authorization required."} else if r.agent.live {"Real public availability; no booking."} else {"Mock scheduling agent; no calendar access or booking."},"tags":if r.agent.google_account {vec!["calendar","account"]} else if r.agent.live {vec!["calendar","availability"]} else {vec!["calendar","mock"]}
     })).collect::<Vec<_>>()});
     // Match the discovery client's bounded document size, without partial results.
     if serde_json::to_vec(&value).map_or(true, |v| v.len() > 64 * 1024) {

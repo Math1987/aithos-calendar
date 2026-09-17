@@ -100,3 +100,10 @@ check after backend deployment. See [the sign-in gate](google-sign-in.md).
 - [Freebusy.query](https://developers.google.com/workspace/calendar/api/v3/reference/freebusy/query)
 - [Events.insert](https://developers.google.com/workspace/calendar/api/v3/reference/events/insert)
 - [Refresh-token expiration in Testing](https://developers.google.com/identity/protocols/oauth2#expiration)
+
+## Connected Calendar implementation
+
+The backend now requests the three Calendar permissions incrementally through
+`/auth/google/start?calendar=true` after sign-in. Each user must grant them.
+The [connected booking guide](google-calendar-booking.md) is the current manual
+test and describes encrypted token storage, expiration and reconnection.

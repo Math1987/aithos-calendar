@@ -1,5 +1,7 @@
 # Gate: Google sign-in and a persistent A2A identity
 
+> Historical sign-in gate. Calendar consent, scheduling and booking now extend this flow; see [the current guide](google-calendar-booking.md).
+
 ## Scope
 
 Google sign-in creates or reuses one private profile and one public A2A identity.

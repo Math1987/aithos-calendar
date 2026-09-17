@@ -402,8 +402,9 @@ function tutorial() {
   app.innerHTML = `<div class="eyebrow">A quick guide</div><h1>Get your Google<br>booking-page link.</h1><p class="intro">Use a public appointment booking page, rather than an event invitation or calendar feed.</p><section class="panel"><ol><li>On a computer, open <a href="https://calendar.google.com/" target="_blank" rel="noopener noreferrer">Google Calendar</a>. Choose <strong>Create → Appointment schedule</strong>.</li><li>Set the title, duration, availability and time zone. Under calendar availability, include the calendars that should block busy times.</li><li>Complete the booking-page settings and save. Under “Booking pages”, hover over your schedule and choose “Copy link”.</li><li>Paste that public link into Calendar. A short link beginning with <strong>calendar.app.google</strong> works too.</li></ol><p class="notice">Available features depend on your Google account. <a href="https://support.google.com/calendar/answer/10729749?hl=en" target="_blank" rel="noopener noreferrer">Google’s setup guide</a> · <a href="https://support.google.com/calendar/answer/10733297?hl=en" target="_blank" rel="noopener noreferrer">Sharing your booking page</a></p></section><p class="notice"><a href="/">← Back to Calendar</a></p>`;
 }
 
-async function authRequest(path, method = 'GET') {
-  const response = await fetch(API + path, {method, credentials:'include', cache:'no-store', signal:AbortSignal.timeout(25000)});
+async function authRequest(path, method = 'GET', payload) {
+  const response = await fetch(API + path, {method, credentials:'include', cache:'no-store', signal:AbortSignal.timeout(25000),
+    headers:payload===undefined?{}:{'Content-Type':'application/json'},body:payload===undefined?undefined:JSON.stringify(payload)});
   if (response.status === 204) return null;
   const data = await response.json();
   if (!response.ok) { const error = new Error(data.error); error.status = response.status; throw error; }
@@ -414,70 +415,142 @@ async function accountPage(sharedHost) {
   const params = new URLSearchParams(location.search);
   const requestedHost = sharedHost || params.get('host');
   const returnHost = validId(requestedHost || '') ? requestedHost : null;
-  const loginErrors = {
+  const accountMessages = {
+    ...messages,
     invalid_login:'This sign-in attempt expired or was already used. Please start again.',
-    login_cancelled:'Sign-in was cancelled. You can try again when you are ready.',
+    login_cancelled:'Google connection was cancelled. You can try again.',
     google_login_failed:'Google sign-in could not be completed. Please try again.',
     test_account_required:'This pilot is limited to the two configured test accounts.',
+    wrong_google_account:'Choose the same Google account shown on this page when connecting Calendar.',
+    calendar_permission_required:'Allow all the requested Calendar permissions, then try again.',
+    calendar_reconnect_required:'Reconnect Google Calendar to renew its permissions.',
+    calendar_connection_required:'Connect Google Calendar first.',
+    calendar_unavailable:'Google Calendar could not be reached. Try again shortly.',
+    host_calendar_not_connected:'The owner of this link must connect or reconnect their Google Calendar first.',
+    unknown_connected_agent:'Use the Aithos agent link of someone who signed in with Google.',
+    invalid_agent_link:'Paste an Aithos link in the form '+WEBSITE+'/book/…',
+    same_account:'This is your own agent. Paste the other person’s link.',
+    proposal_expired:'This proposal expired. Find a new time before confirming.',
+    sign_in_required:'Your session expired. Sign in again.',
   };
-  const loginError = loginErrors[params.get('error')];
-  if (params.has('error')) history.replaceState(null,'',location.pathname + (returnHost ? '?host='+encodeURIComponent(returnHost) : ''));
-  app.innerHTML = `<div class="eyebrow">Your calendar agent</div><h1>${returnHost ? 'A time together.<br>Starting with you.' : 'One account.<br>Your own agent.'}</h1><p class="intro">Sign in with Google to create or find your personal agent.</p><section class="panel"><div id="account-content"><p>Checking your session…</p></div><div id="status" class="status" role="status" aria-live="polite" hidden></div></section>`;
-  const content = document.querySelector('#account-content');
-  const signIn = () => {
-    content.replaceChildren();
-    const link = document.createElement('a'); link.className='primary'; link.textContent='Continue with Google';
-    link.href=API+'/auth/google/start'+(returnHost ? '?host='+encodeURIComponent(returnHost) : '');
-    const note=document.createElement('p'); note.className='notice'; note.textContent='This step creates your agent. Calendar access and booking are not enabled yet.';
-    content.append(link,note);
-    if (loginError) outcome('Sign-in needs another try',loginError);
-  };
+  const loginError = accountMessages[params.get('error')];
+  if(params.has('error')) history.replaceState(null,'',location.pathname+(returnHost?'?host='+encodeURIComponent(returnHost):''));
+  app.innerHTML='<div class="eyebrow">Your calendar agent</div><h1>A time together.<br>Simply agreed.</h1><p class="intro">Connect Google Calendar, find a shared time, and confirm one meeting in both calendars.</p><section class="panel"><div id="account-content"><p>Checking your session…</p></div><div id="agent-state" class="share"></div><div id="calendar-content" class="share"></div><div id="status" class="status" role="status" aria-live="polite" hidden></div></section>';
+  const content=document.querySelector('#account-content');
   let profile;
-  try { profile=await authRequest('/auth/me'); }
+  try {profile=await authRequest('/auth/me');}
   catch(error) {
-    if(error.status===401) {signIn();return;}
-    content.textContent='Your session could not be checked.';
-    outcome('Connection unavailable','Reload this page to try again.'); return;
+    content.replaceChildren();
+    if(error.status===401) {
+      const link=document.createElement('a');link.className='primary';link.textContent='Continue with Google';
+      link.href=API+'/auth/google/start'+(returnHost?'?host='+encodeURIComponent(returnHost):'');content.append(link);
+      if(loginError) outcome('Connection needs another try',loginError);
+    } else outcome('Connection unavailable','Your session could not be checked. Reload to try again.');
+    return;
   }
   content.replaceChildren();
-  const name=document.createElement('strong'); name.textContent=profile.name;
-  const email=document.createElement('p'); email.textContent=profile.email;
-  const logout=document.createElement('button'); logout.className='secondary';logout.textContent='Sign out';
-  logout.addEventListener('click',async()=>{
-    logout.disabled=true;
-    try {await authRequest('/auth/logout','POST');location.assign('/account');}
-    catch {logout.disabled=false;outcome('Sign-out failed','Please try again.');}
-  });
+  const name=document.createElement('strong');name.textContent=profile.name;
+  const email=document.createElement('p');email.textContent=profile.email;
+  const logout=document.createElement('button');logout.className='secondary';logout.textContent='Sign out';
+  logout.onclick=async()=>{logout.disabled=true;try{await authRequest('/auth/logout','POST');location.assign('/account');}catch{logout.disabled=false;outcome('Sign-out failed','Please try again.');}};
   content.append(name,email,logout);
-  if(loginError) outcome('Sign-in needs another try',loginError);
-  const prepare = async () => {
-    loading('Preparing your agent…');
+  if(loginError) outcome('Connection needs another try',loginError);
+  const agentState=document.querySelector('#agent-state');
+  const prepare=async()=>{
+    agentState.textContent='Preparing your agent…';
+    let agent;
     try {
-      let agent;
-      for (let attempt=0;attempt<4;attempt++) {
+      for(let attempt=0;attempt<4;attempt++) {
         agent=await authRequest('/auth/agent','POST');
         if(agent.publication_status==='published') break;
         if(attempt<3) await new Promise(resolve=>setTimeout(resolve,1500));
       }
-      if(agent.publication_status!=='published') throw new Error('pending');
-      if(agent.id!==profile.id || agent.share_url!==WEBSITE+'/book/'+agent.id) throw new Error('invalid');
-      outcome('Your agent is ready', returnHost ? 'Your account is connected. Finding a shared time with this agent will be available once Calendar access is enabled.' : 'Your account is connected. Share your agent’s link; Calendar access and scheduling will be available in the next step.','success');
-      const section=document.createElement('div');section.className='share';
-      const label=document.createElement('label');label.htmlFor='account-share';label.textContent='Your agent’s link';
-      const input=document.createElement('input');input.id='account-share';input.readOnly=true;input.value=agent.share_url;
-      const copy=document.createElement('button');copy.className='secondary';copy.textContent='Copy link';
-      copy.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(input.value);copy.textContent='Copied';}catch{input.focus();input.select();}});
-      const details=document.createElement('details');const summary=document.createElement('summary');summary.textContent='Agent details';
-      const id=document.createElement('code');id.textContent=agent.identifier;
-      const card=document.createElement('a');card.textContent='View AgentCard';
-      const cardUrl=new URL(agent.agent_card_url);
-      if(cardUrl.origin==='https://registry.aithos.world'){card.href=cardUrl.href;card.target='_blank';card.rel='noopener noreferrer';}
-      details.append(summary,id,card);section.append(label,input,copy,details);document.querySelector('#status').append(section);
-    } catch {
-      outcome('Your account is connected','Your agent could not be published yet. Retry to continue with the same identity.');
-      const retry=document.createElement('button');retry.textContent='Retry';retry.addEventListener('click',prepare);document.querySelector('#status').append(retry);
+    } catch(error) {
+      agentState.textContent=error.status===401?'Your session expired. Reload to sign in again.':'Your account is connected. We could not check your agent’s publication.';
+      const retry=document.createElement('button');retry.textContent='Check again';retry.onclick=prepare;agentState.append(retry);return;
     }
+    if(agent.id!==profile.id || agent.share_url!==WEBSITE+'/book/'+profile.id) {
+      agentState.textContent='Your active account changed. Reload this page to continue.';return;
+    }
+    if(agent.publication_status!=='published') {
+      agentState.textContent='Your account is connected. Your agent is still being published.';
+      const retry=document.createElement('button');retry.textContent='Check again';retry.onclick=prepare;agentState.append(retry);return;
+    }
+    agentState.replaceChildren();
+    const label=document.createElement('label');label.htmlFor='account-share';label.textContent='Your agent’s link';
+    const input=document.createElement('input');input.id='account-share';input.readOnly=true;input.value=agent.share_url;
+    const copy=document.createElement('button');copy.className='secondary';copy.textContent='Copy link';copy.onclick=async()=>{try{await navigator.clipboard.writeText(input.value);copy.textContent='Copied';}catch{input.focus();input.select();}};
+    agentState.append(label,input,copy);
+    showCalendar();
   };
+  function connectLink(label='Connect Google Calendar') {
+    const a=document.createElement('a');a.className='primary';a.textContent=label;
+    a.href=API+'/auth/google/start?calendar=true'+(returnHost?'&host='+encodeURIComponent(returnHost):'');return a;
+  }
+  function fail(error) {
+    outcome('We couldn’t complete this step',accountMessages[error.message]||'The service did not respond. Please try again.');
+    if(['calendar_reconnect_required','calendar_permission_required','calendar_connection_required'].includes(error.message)) document.querySelector('#status').append(connectLink('Reconnect Google Calendar'));
+  }
+  function showCalendar() {
+    const area=document.querySelector('#calendar-content');area.replaceChildren();
+    const note=document.createElement('p');note.className='notice';
+    if(!profile.calendar_connected) {
+      note.textContent='Allow access to your primary calendar’s availability and permission to create and accept meetings. Sharing your agent’s link lets signed-in visitors book a free time. Both participants’ Google email addresses will be visible on the meeting.';
+      area.append(note,connectLink());return;
+    }
+    note.textContent='Google Calendar connected. 30-minute meetings, weekdays 09:00–18:00 in each calendar’s time zone. We start tomorrow in the host’s time zone and search the next 30 days.';
+    const reconnect=connectLink('Reconnect Calendar');reconnect.className='secondary';
+    const disconnect=document.createElement('button');disconnect.className='secondary';disconnect.textContent='Disconnect Calendar';
+    disconnect.onclick=async()=>{disconnect.disabled=true;try{await authRequest('/calendar/disconnect','POST');profile.calendar_connected=false;showCalendar();}catch(e){disconnect.disabled=false;fail(e);}};
+    const form=document.createElement('form');
+    const label=document.createElement('label');label.htmlFor='host-link';label.textContent='The other person’s agent link';
+    const input=document.createElement('input');input.id='host-link';input.type='url';input.required=true;input.placeholder=WEBSITE+'/book/…';input.value=returnHost?WEBSITE+'/book/'+returnHost:'';
+    const find=document.createElement('button');find.type='submit';find.textContent='Find a time';
+    form.append(label,input,find);area.append(note,reconnect,disconnect,form);
+    const storageKey='calendar-connected-booking:'+profile.id;
+    let active=null,busy=false;
+    try{active=JSON.parse(localStorage.getItem(storageKey));if(typeof active?.id!=='string'||!/^gc[a-f0-9]{40}$/.test(active.id)) active=null;}catch{active=null;}
+    if(/^gc[a-f0-9]{40}$/.test(profile.pending_booking_id||''))active={id:profile.pending_booking_id};
+    const remember=value=>{active=value;try{if(value)localStorage.setItem(storageKey,JSON.stringify(value));else localStorage.removeItem(storageKey);}catch{}};
+    const lock=value=>{busy=value;find.disabled=value||!!active;input.disabled=value||!!active;disconnect.disabled=value||!!active;};
+    const when=slot=>new Intl.DateTimeFormat(undefined,{dateStyle:'full',timeStyle:'short'}).format(new Date(slot.start))+' · 30 minutes · '+Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const details=()=>{if(active){const p=document.createElement('p');p.className='notice';p.textContent='Booking reference: '+active.id;document.querySelector('#status').append(p);}};
+    async function confirm() {
+      if(busy||!active)return;lock(true);loading('Confirming your meeting…');
+      try {
+        for(let attempt=0;attempt<20;attempt++) {
+          const result=await authRequest('/calendar/bookings','POST',{id:active.id});
+          if(result.id!==active.id) throw new Error('invalid_booking');
+          if(result.status==='booked' && result.reserved===true) {
+            outcome('Your meeting is booked',when(result.slot)+'. Confirmed in both primary calendars.','success');remember(null);return;
+          }
+          if(['slot_unavailable','failed'].includes(result.status)) {remember(null);outcome('That time is no longer available','Find another time and confirm again.');return;}
+          if(result.status==='outcome_unknown') {
+            outcome('The booking needs checking','Its outcome is not confirmed. Check both calendars and use “Check booking” to reconcile this same meeting.');details();break;
+          }
+          loading(result.status==='confirming_guest'?'Meeting created. Waiting for confirmation in your calendar…':'Checking the booking in progress…');
+          await new Promise(resolve=>setTimeout(resolve,3000));
+        }
+        if(document.querySelector('#status').classList.contains('loading')) {outcome('Confirmation is still pending','Check this booking again shortly. If Google sent an invitation, you can also accept it in your calendar.');details();}
+      } catch(error) {
+        if(['proposal_expired','slot_no_longer_available','calendar_connection_required','calendar_reconnect_required','booking_already_in_progress','invalid_booking'].includes(error.message)) {remember(null);fail(error);return;}
+        outcome('Confirmation needs checking','We could not obtain the final status. Check this same booking before trying another time.');details();
+      } finally {lock(false);}
+      if(active){const check=document.createElement('button');check.textContent='Check booking';check.onclick=confirm;document.querySelector('#status').append(check);}
+    }
+    form.onsubmit=async event=>{
+      event.preventDefault();if(busy||active)return;lock(true);loading('Finding a time that works for both of you…');
+      try {
+        const result=await authRequest('/calendar/proposals','POST',{host_url:input.value.trim()});
+        if(result.status==='no_common_slot'){outcome('No shared time found','There is no common 30-minute window in the next 30 days.');return;}
+        if(result.status!=='slot_found'||!result.proposal?.slot)throw new Error('invalid_booking');
+        const proposal=result.proposal;
+        outcome('A time that works for both of you',when(proposal.slot)+'. Confirm to create a meeting, invite you, and accept it in your calendar. Both participants will see each other’s Google email address.','success');
+        const book=document.createElement('button');book.textContent='Confirm booking';book.onclick=()=>{if(busy||active)return;book.disabled=true;remember({id:proposal.id});confirm();};document.querySelector('#status').append(book);
+      } catch(error){fail(error);} finally{lock(false);}
+    };
+    if(active){lock(false);outcome('A booking needs checking','Resume the existing booking to verify its result.');details();const check=document.createElement('button');check.textContent='Check booking';check.onclick=confirm;document.querySelector('#status').append(check);}
+  }
   await prepare();
 }
 

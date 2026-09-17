@@ -13,8 +13,8 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args):
         return None
 opener = urllib.request.build_opener(NoRedirect)
-def request(path, method='GET', headers=None):
-    req = urllib.request.Request(API + path, method=method, headers=headers or {})
+def request(path, method='GET', headers=None, payload=None):
+    req = urllib.request.Request(API + path, method=method, headers=headers or {}, data=None if payload is None else json.dumps(payload).encode())
     try:
         response = opener.open(req, timeout=25)
     except urllib.error.HTTPError as error:
@@ -54,3 +54,11 @@ assert not any(c.startswith('__Host-calendar-session=') for c in headers.get_all
 status, headers, _=request(callback,headers={'Cookie':login.split(';')[0]})
 assert status == 303 and headers['Location'] == SITE+'/account?error=invalid_login'
 print('PASS Google redirect, PKCE, browser cookie, cancellation and one-time state')
+
+for path, payload in [('/calendar/proposals', {'host_url':SITE+'/book/test'}),('/calendar/bookings',{'id':'gc'+'a'*40})]:
+    for origin, expected in [(SITE,401),('https://unrelated.example',403)]:
+        status,_,_=request(path,'POST',{'Origin':origin,'Content-Type':'application/json'},payload)
+        assert status==expected,(path,status)
+status,_,_=request('/calendar/disconnect','POST',{'Origin':SITE})
+assert status==401
+print('PASS Calendar proposals, booking and disconnect require an authenticated owner')

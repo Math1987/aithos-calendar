@@ -10,6 +10,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--port', type=int, default=3189)
 parser.add_argument('--result', choices=['slot_found', 'no_common_slot', 'error', 'invalid_response'], default='slot_found')
 parser.add_argument('--signed-in', action='store_true')
+parser.add_argument('--connected', action='store_true')
 parser.add_argument('--pending-once', action='store_true')
 parser.add_argument('--booking-result', choices=['booked','confirmation_required','slot_unavailable','unknown','failed','missing'], default='booked')
 args = parser.parse_args()
@@ -27,7 +28,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == '/auth/me':
-            self.reply({'id':'test-account', 'name':'Test Person', 'email':'test@example.com','calendar_connected':False} if args.signed_in else {'error':'sign_in_required'}, 200 if args.signed_in else 401)
+            self.reply({'id':'test-account', 'name':'Test Person', 'email':'test@example.com','calendar_connected':args.connected} if args.signed_in else {'error':'sign_in_required'}, 200 if args.signed_in else 401)
             return
         if self.path.startswith('/bookings/'):
             op = bookings.get(self.path.split('/')[-1])
@@ -63,7 +64,14 @@ class Handler(BaseHTTPRequestHandler):
             return
         value = json.loads(self.rfile.read(int(self.headers.get('Content-Length', '0'))))
         time.sleep(.3)  # Make the disabled form/loading state observable.
-        if self.path == '/agents':
+        if self.path == '/calendar/proposals':
+            if args.result == 'error':
+                self.reply({'error':'host_calendar_not_connected'},409)
+            else:
+                self.reply({'status':args.result,'proposal':{'id':'gc'+'a'*40,'host':'test-host','peer':'test-account','slot':{'start':'2030-01-15T09:30:00Z','end':'2030-01-15T10:00:00Z'},'timezone':'Europe/Paris'},'reserved':False})
+        elif self.path == '/calendar/bookings':
+            self.reply({'id':value['id'],'status':args.booking_result,'slot':{'start':'2030-01-15T09:30:00Z','end':'2030-01-15T10:00:00Z'},'reserved':args.booking_result=='booked'})
+        elif self.path == '/agents':
             url = value.get('booking_page_url', '')
             if not url.startswith('https://calendar.app.google/'):
                 self.reply({'error': 'invalid_booking_page_url'}, 400)
