@@ -15,17 +15,16 @@ resource "aws_cloudwatch_log_group" "agent_worker" {
   retention_in_days = 14
 }
 resource "aws_lambda_function" "agent_worker" {
-  function_name                  = "${local.name}-agent-worker"
-  role                           = "arn:aws:iam::128066560720:role/${local.name}-agent-worker"
-  handler                        = "bootstrap"
-  runtime                        = "provided.al2023"
-  architectures                  = ["x86_64"]
-  memory_size                    = 512
-  timeout                        = 240
-  reserved_concurrent_executions = 4
-  filename                       = data.archive_file.health.output_path
-  source_code_hash               = data.archive_file.health.output_base64sha256
-  depends_on                     = [aws_cloudwatch_log_group.agent_worker]
+  function_name    = "${local.name}-agent-worker"
+  role             = "arn:aws:iam::128066560720:role/${local.name}-agent-worker"
+  handler          = "bootstrap"
+  runtime          = "provided.al2023"
+  architectures    = ["x86_64"]
+  memory_size      = 512
+  timeout          = 240
+  filename         = data.archive_file.health.output_path
+  source_code_hash = data.archive_file.health.output_base64sha256
+  depends_on       = [aws_cloudwatch_log_group.agent_worker]
   environment {
     variables = merge(aws_lambda_function.health.environment[0].variables, { CALENDAR_WORKER = "true" })
   }

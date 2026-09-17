@@ -1,6 +1,7 @@
 //! Only this module invokes Bedrock. A successful reservation is mandatory.
 use super::{budget::Budget, state::Result};
 use async_trait::async_trait;
+use aws_sdk_bedrockruntime::error::ProvideErrorMetadata;
 use serde_json::{Value, json};
 use std::sync::Arc;
 pub const MODEL: &str = "eu.anthropic.claude-haiku-4-5-20251001-v1:0";
@@ -32,7 +33,14 @@ impl Transport for Bedrock {
             ))
             .send()
             .await
-            .map_err(|_| "inference_uncertain")?;
+            .map_err(|error| {
+                let code = error
+                    .as_service_error()
+                    .and_then(|e| e.code())
+                    .unwrap_or("transport_error");
+                tracing::warn!(event = "bedrock_failed", code);
+                "inference_uncertain"
+            })?;
         serde_json::from_slice(response.body.as_ref()).map_err(|_| "inference_uncertain")
     }
 }
@@ -104,8 +112,25 @@ impl Model {
             .as_array()
             .and_then(|a| a.iter().find_map(|p| p["text"].as_str()))
             .ok_or("invalid_analysis")?;
-        serde_json::from_str(text).map_err(|_| "invalid_analysis")
+        parse_analysis(text)
     }
+}
+// Accept the common JSON code-fence wrapper, but never prose or partial JSON.
+fn parse_analysis(text: &str) -> Result<Value> {
+    let text = text.trim();
+    let text = if let Some(inner) = text
+        .strip_prefix("```json")
+        .or_else(|| text.strip_prefix("```"))
+    {
+        inner.strip_suffix("```").ok_or("invalid_analysis")?.trim()
+    } else {
+        text
+    };
+    let value: Value = serde_json::from_str(text).map_err(|_| "invalid_analysis")?;
+    if !value.is_object() {
+        return Err("invalid_analysis");
+    }
+    Ok(value)
 }
 #[cfg(test)]
 mod tests {
@@ -115,6 +140,16 @@ mod tests {
         state::{MemoryState, StateStore},
     };
     use std::sync::atomic::{AtomicUsize, Ordering};
+    #[test]
+    fn analysis_accepts_json_fences_but_rejects_prose_and_partial_data() {
+        assert_eq!(
+            parse_analysis("```json\n{\"allow_lunch\":false}\n```").unwrap(),
+            json!({"allow_lunch":false})
+        );
+        assert!(parse_analysis("Here is the result: {}").is_err());
+        assert!(parse_analysis("```json\n{}").is_err());
+        assert!(parse_analysis("[]").is_err());
+    }
     struct Fake(AtomicUsize);
     #[async_trait]
     impl Transport for Fake {
@@ -280,5 +315,50 @@ mod tests {
             serde_json::from_value(store.read("budget").await.unwrap().unwrap().value).unwrap();
         assert_eq!(ledger.total().unwrap(), MAX_COST);
         task.abort();
+    }
+    struct Hang(AtomicUsize);
+    #[async_trait]
+    impl Transport for Hang {
+        async fn invoke(&self, _: Value) -> Result<Value> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            std::future::pending().await
+        }
+    }
+    #[tokio::test]
+    async fn cancelled_worker_keeps_its_entire_hold() {
+        let store = Arc::new(MemoryState::default());
+        let at = "2026-09-17T12:00:00Z".parse().unwrap();
+        store
+            .cas(
+                "budget",
+                None,
+                serde_json::to_value(Ledger {
+                    month: Ledger::month(at),
+                    spent: OPERATING_LIMIT - MAX_COST,
+                    held: Default::default(),
+                })
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        let transport = Arc::new(Hang(AtomicUsize::new(0)));
+        let model = Arc::new(Model {
+            budget: Budget {
+                store: store.clone(),
+            },
+            transport: transport.clone(),
+        });
+        let m = model.clone();
+        let task = tokio::spawn(async move { m.analyze_at(json!({}), at).await });
+        while transport.0.load(Ordering::SeqCst) == 0 {
+            tokio::task::yield_now().await;
+        }
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        assert_eq!(
+            model.analyze_at(json!({}), at).await.unwrap_err(),
+            "budget_exhausted"
+        );
+        assert_eq!(transport.0.load(Ordering::SeqCst), 1);
     }
 }

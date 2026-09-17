@@ -9,7 +9,9 @@ table=f'arn:aws:dynamodb:eu-west-3:{account}:table/calendar-production-agent-sta
 checks=[
  ('health','bedrock:InvokeModel',profile,[],False),
  ('deploy','bedrock:InvokeModel',profile,[],False),
- ('agent-worker','bedrock:InvokeModel',profile,[{'ContextKeyName':'bedrock:InferenceProfileArn','ContextKeyValues':[profile],'ContextKeyType':'string'}],True),
+ ('agent-worker','bedrock:InvokeModel',profile,[],True),
+ ('agent-worker','bedrock:InvokeModel','arn:aws:bedrock:eu-west-3::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0',[],False),
+ ('agent-worker','bedrock:InvokeModel','arn:aws:bedrock:eu-west-3::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0',[{'ContextKeyName':'bedrock:InferenceProfileArn','ContextKeyValues':[profile],'ContextKeyType':'string'}],True),
  ('health','dynamodb:PutItem',table,[{'ContextKeyName':'dynamodb:LeadingKeys','ContextKeyValues':['budget'],'ContextKeyType':'stringList'}],False),
  ('health','dynamodb:PutItem',table,[{'ContextKeyName':'dynamodb:LeadingKeys','ContextKeyValues':['job:test'],'ContextKeyType':'stringList'}],True),
  ('agent-worker','dynamodb:DeleteItem',table,[],False),

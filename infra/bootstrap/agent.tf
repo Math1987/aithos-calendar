@@ -42,7 +42,8 @@ resource "aws_iam_role_policy" "agent_worker" {
     { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem"], Resource = "arn:aws:dynamodb:${local.region}:${local.account}:table/${local.name}-bookings" },
     { Effect = "Allow", Action = ["kms:Encrypt", "kms:Decrypt"], Resource = aws_kms_key.google_tokens.arn, Condition = { StringEquals = { "kms:EncryptionContext:service" = "calendar" }, Null = { "kms:EncryptionContext:account" = "false" } } },
     { Effect = "Allow", Action = ["secretsmanager:GetSecretValue"], Resource = aws_secretsmanager_secret.google_oauth.arn },
-    { Effect = "Allow", Action = ["bedrock:InvokeModel"], Resource = ["arn:aws:bedrock:${local.region}:${local.account}:inference-profile/eu.anthropic.claude-haiku-4-5-20251001-v1:0", "arn:aws:bedrock:eu-*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0"], Condition = { StringEquals = { "bedrock:InferenceProfileArn" = "arn:aws:bedrock:${local.region}:${local.account}:inference-profile/eu.anthropic.claude-haiku-4-5-20251001-v1:0" } } }
+    { Effect = "Allow", Action = ["bedrock:InvokeModel"], Resource = "arn:aws:bedrock:${local.region}:${local.account}:inference-profile/eu.anthropic.claude-haiku-4-5-20251001-v1:0" },
+    { Effect = "Allow", Action = ["bedrock:InvokeModel"], Resource = "arn:aws:bedrock:eu-*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0", Condition = { StringEquals = { "bedrock:InferenceProfileArn" = "arn:aws:bedrock:${local.region}:${local.account}:inference-profile/eu.anthropic.claude-haiku-4-5-20251001-v1:0" } } }
   ] })
 }
 resource "aws_iam_role_policy" "api_agent_tasks" {
@@ -58,8 +59,9 @@ resource "aws_iam_role_policy" "deploy_agent" {
   name = "agent-worker-deployment"
   role = aws_iam_role.deploy.id
   policy = jsonencode({ Version = "2012-10-17", Statement = [
-    { Effect = "Allow", Action = ["lambda:CreateFunction", "lambda:GetFunction*", "lambda:GetRuntimeManagementConfig", "lambda:GetPolicy", "lambda:ListVersionsByFunction", "lambda:ListTags", "lambda:TagResource", "lambda:UntagResource", "lambda:UpdateFunctionCode", "lambda:UpdateFunctionConfiguration", "lambda:PutFunctionConcurrency", "lambda:GetFunctionConcurrency"], Resource = "arn:aws:lambda:${local.region}:${local.account}:function:${local.name}-agent-worker" },
+    { Effect = "Allow", Action = ["lambda:CreateFunction", "lambda:GetFunction*", "lambda:GetRuntimeManagementConfig", "lambda:GetPolicy", "lambda:ListVersionsByFunction", "lambda:ListTags", "lambda:TagResource", "lambda:UntagResource", "lambda:UpdateFunctionCode", "lambda:UpdateFunctionConfiguration", "lambda:PutFunctionConcurrency", "lambda:GetFunctionConcurrency", "lambda:DeleteFunctionConcurrency"], Resource = "arn:aws:lambda:${local.region}:${local.account}:function:${local.name}-agent-worker" },
     { Effect = "Allow", Action = ["lambda:CreateEventSourceMapping", "lambda:GetEventSourceMapping", "lambda:UpdateEventSourceMapping", "lambda:DeleteEventSourceMapping", "lambda:ListEventSourceMappings"], Resource = "*" },
+    { Effect = "Allow", Action = ["lambda:ListTags", "lambda:TagResource", "lambda:UntagResource"], Resource = "arn:aws:lambda:${local.region}:${local.account}:event-source-mapping:*" },
     { Effect = "Allow", Action = ["iam:PassRole"], Resource = aws_iam_role.agent_worker.arn, Condition = { StringEquals = { "iam:PassedToService" = "lambda.amazonaws.com" } } },
     { Effect = "Allow", Action = ["sqs:CreateQueue", "sqs:GetQueueAttributes", "sqs:GetQueueUrl", "sqs:SetQueueAttributes", "sqs:ListQueueTags", "sqs:TagQueue", "sqs:UntagQueue"], Resource = ["arn:aws:sqs:${local.region}:${local.account}:${local.name}-agent", "arn:aws:sqs:${local.region}:${local.account}:${local.name}-agent-dlq"] },
     { Effect = "Allow", Action = ["logs:CreateLogGroup", "logs:PutRetentionPolicy", "logs:ListTagsForResource", "logs:ListTagsLogGroup", "logs:TagResource", "logs:UntagResource"], Resource = ["arn:aws:logs:${local.region}:${local.account}:log-group:/aws/lambda/${local.name}-agent-worker", "arn:aws:logs:${local.region}:${local.account}:log-group:/aws/lambda/${local.name}-agent-worker:*"] },

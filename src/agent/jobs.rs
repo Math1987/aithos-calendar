@@ -59,6 +59,7 @@ impl Jobs {
     async fn enqueue(&self, id: &str, delay: i32) -> Result<()> {
         self.queue.enqueue(id, delay).await
     }
+    #[tracing::instrument(skip_all, fields(task_id=id))]
     pub async fn process(
         &self,
         id: &str,

@@ -18,6 +18,7 @@ origin = f'http://127.0.0.1:{args.port}'
 root = Path(__file__).resolve().parents[1]
 seen = set()
 bookings = {}
+tasks = {}
 
 class Handler(BaseHTTPRequestHandler):
     def reply(self, value, status=200):
@@ -29,6 +30,15 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == '/auth/me':
             self.reply({'id':'test-account', 'name':'Test Person', 'email':'test@example.com','calendar_connected':args.connected} if args.signed_in else {'error':'sign_in_required'}, 200 if args.signed_in else 401)
+            return
+        if self.path.startswith('/calendar/tasks/'):
+            task = tasks.get(self.path.rsplit('/',1)[-1])
+            if task is None:
+                self.reply({'error':'unknown_task'},404)
+            else:
+                task['polls'] += 1
+                status = 'working' if task['polls'] < (4 if args.pending_once else 2) else ('no_common_slot' if args.result == 'no_common_slot' else 'failed' if args.result == 'error' else 'needs_attention' if args.booking_result == 'unknown' else 'booked')
+                self.reply({'id':task['id'],'status':status,'result':{'status':status,'reserved':status=='booked','slot':{'start':'2030-01-15T09:30:00Z','end':'2030-01-15T10:15:00Z'},'explanation':'Selected from both calendars using evidenced preferences and shared availability.','previous_meetings':[{'title':'Project catch-up','start':'2026-09-10T09:30:00Z'}]}})
             return
         if self.path.startswith('/bookings/'):
             op = bookings.get(self.path.split('/')[-1])
@@ -64,7 +74,11 @@ class Handler(BaseHTTPRequestHandler):
             return
         value = json.loads(self.rfile.read(int(self.headers.get('Content-Length', '0'))))
         time.sleep(.3)  # Make the disabled form/loading state observable.
-        if self.path == '/calendar/proposals':
+        if self.path == '/calendar/tasks':
+            task_id = 'gc' + 'a'*40
+            tasks.setdefault(task_id,{'id':task_id,'polls':0})
+            self.reply({'id':task_id,'status':'queued'},202)
+        elif self.path == '/calendar/proposals':
             if args.result == 'error':
                 self.reply({'error':'host_calendar_not_connected'},409)
             else:

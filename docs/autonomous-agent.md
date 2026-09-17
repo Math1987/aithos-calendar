@@ -137,3 +137,15 @@ to `job:*` keys. Only the worker can call the one allowed inference profile.
 References: [Haiku model limits](https://docs.aws.amazon.com/bedrock/latest/userguide/model-card-anthropic-claude-haiku-4-5.html),
 [AWS budget limitations](https://docs.aws.amazon.com/cost-management/latest/userguide/bcm-lite-use-budget.html),
 [Google events.list](https://developers.google.com/workspace/calendar/api/v3/reference/events/list).
+
+### Operator allowance check
+
+```sh
+python3 scripts/with-env.py python3 scripts/budget-status.py
+```
+
+This reads the real shared ledger and displays completed maximum charges,
+unresolved holds and remaining allowance. It does not issue an inference or
+modify the counter. `examples/history_probe.rs` separately verifies the live
+Google history adapter with explicitly configured test account IDs and prints
+counts only; it does not call Bedrock or book a meeting.

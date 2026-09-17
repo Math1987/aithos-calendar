@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, sync::Arc};
 pub const HARD_LIMIT: u64 = 30_000_000_000;
 pub const OPERATING_LIMIT: u64 = 25_000_000_000;
+const _: () = assert!(OPERATING_LIMIT < HARD_LIMIT);
 const KEY: &str = "budget";
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
