@@ -17,7 +17,7 @@ resource "aws_lambda_function" "health" {
   runtime          = "provided.al2023"
   architectures    = ["x86_64"]
   memory_size      = 128
-  timeout          = 15
+  timeout          = 25
   filename         = data.archive_file.health.output_path
   source_code_hash = data.archive_file.health.output_base64sha256
   depends_on       = [aws_cloudwatch_log_group.lambda]
@@ -48,7 +48,7 @@ resource "aws_apigatewayv2_integration" "health" {
   integration_type       = "AWS_PROXY"
   integration_uri        = aws_lambda_function.health.invoke_arn
   payload_format_version = "2.0"
-  timeout_milliseconds   = 20000
+  timeout_milliseconds   = 29000
 }
 resource "aws_apigatewayv2_route" "health" {
   api_id    = aws_apigatewayv2_api.api.id
@@ -86,12 +86,13 @@ resource "aws_apigatewayv2_api_mapping" "api" {
   stage       = aws_apigatewayv2_stage.production.id
 }
 
-# Discovery and mock A2A share the existing function and integration.
+# Discovery and A2A share the existing function and integration.
 locals {
   agent_routes = {
-    catalog = { method = "GET", path = "/.well-known/ai-catalog.json", invoke_path = "/.well-known/ai-catalog.json" }
-    cards   = { method = "GET", path = "/agents/{tenant}/agent-card.json", invoke_path = "/agents/*/agent-card.json" }
-    a2a     = { method = "POST", path = "/a2a", invoke_path = "/a2a" }
+    catalog  = { method = "GET", path = "/.well-known/ai-catalog.json", invoke_path = "/.well-known/ai-catalog.json" }
+    schedule = { method = "GET", path = "/agents/{tenant}/schedule", invoke_path = "/agents/*/schedule" }
+    cards    = { method = "GET", path = "/agents/{tenant}/agent-card.json", invoke_path = "/agents/*/agent-card.json" }
+    a2a      = { method = "POST", path = "/a2a", invoke_path = "/a2a" }
   }
 }
 

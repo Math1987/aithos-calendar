@@ -1,6 +1,9 @@
 # Technical architecture
 
-Status: the Rust foundation and Alice/Bob mock A2A gate are deployed and verified.
+Status: the Rust foundation, dynamic identities and mock browser gate are deployed.
+The live availability gate is implemented on the development branch; deployment
+and existing-card upgrades are pending. See [gate 5](live-browser-test.md).
+The first usable release uses deterministic scheduling and booking, without an LLM.
 The sections below describe the foundation; the A2A section records its extension.
 
 ## Confirmed choices

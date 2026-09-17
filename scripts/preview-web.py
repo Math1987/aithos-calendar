@@ -27,6 +27,8 @@ class Handler(BaseHTTPRequestHandler):
             tenant = self.path.split('/')[2]
             if tenant not in ['test-host', 'test-guest']:
                 self.reply({}, 404)
+            elif self.path.endswith('/schedule'):
+                self.reply({'id':tenant, 'mock':False, 'reserved':False, 'schedule':{'title':'A conversation together','duration_minutes':30,'timezone':'Europe/Paris'}})
             else:
                 self.reply({'supportedInterfaces': [{'url': origin + '/a2a', 'protocolBinding': 'JSONRPC', 'protocolVersion': '1.0', 'tenant': tenant}]})
             return
@@ -48,12 +50,12 @@ class Handler(BaseHTTPRequestHandler):
             pending = args.pending_once and tenant not in seen
             seen.add(tenant)
             self.reply({'id': tenant, 'identifier': 'urn:aithos:calendar:agent:' + tenant,
-                        'share_url': origin + '/book/' + tenant, 'mock': True,
+                        'share_url': origin + '/book/' + tenant, 'mock': False,
                         'publication_status': 'pending' if pending else 'published'}, 202 if pending else 200)
         elif self.path == '/a2a':
             params = value['params']
             request = params['message']['parts'][0]['data']
-            data = {'status': args.result, 'mock': True, 'reserved': False,
+            data = {'duration_minutes':30, 'status': args.result, 'mock': False, 'reserved': False,
                     'organizer': 'urn:aithos:calendar:agent:' + params['tenant'],
                     'peer': request['peer'], 'trace_id': params['metadata']['calendarTraceId'],
                     'slot': {'start': '2030-01-15T09:30:00Z', 'end': '2030-01-15T10:00:00Z'} if args.result == 'slot_found' else None}

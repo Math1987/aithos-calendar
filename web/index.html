@@ -74,7 +74,7 @@
 <div class="shell">
   <header>
     <a class="brand" href="/" aria-label="Calendar home"><svg aria-hidden="true" viewBox="0 0 28 28" fill="none"><rect x="3" y="5" width="22" height="20" rx="5" stroke="currentColor" stroke-width="1.7"/><path d="M3 12h22M9 2v6M19 2v6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="m10 18 3 3 6-6" stroke="#285c46" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>Calendar</a>
-    <span class="badge">Test mode · no bookings</span>
+    <span class="badge">Live availability · no bookings</span>
   </header>
   <main id="app" aria-busy="false"></main>
   <noscript><p>Enable JavaScript to create a link and run the calendar test.</p></noscript>
@@ -83,7 +83,6 @@
 <script type="module">
 const API = 'https://api.calendar.aithos.world';
 const WEBSITE = 'https://calendar.aithos.world';
-const DURATION = 30; // Preview only; actual host appointment duration is a later gate.
 const app = document.querySelector('#app');
 const validId = id => /^[a-zA-Z0-9_-]{1,64}$/.test(id);
 let active = false;
@@ -100,6 +99,8 @@ const messages = {
   peer_unavailable: 'The other calendar could not respond. Please try again.',
   discovery_unavailable: 'We could not connect the two calendars. Please try again.',
   timeout: 'The comparison took too long. Please try again.',
+  availability_unavailable: 'We could not read Google’s availability. Please try again shortly.',
+  agent_upgrade_required: 'This link still uses the older test version. Its owner needs to contact us to update it.',
 };
 class UserError extends Error {}
 function loading(message) {
@@ -119,7 +120,7 @@ function outcome(title, text, type = 'error') {
   status.append(heading, description);
   if (traceId) {
     const details = document.createElement('details');
-    const summary = document.createElement('summary'); summary.textContent = 'Test details';
+    const summary = document.createElement('summary'); summary.textContent = 'Request details';
     const code = document.createElement('code'); code.textContent = 'Trace ID: ' + traceId;
     details.append(summary, code); status.append(details);
   }
@@ -135,7 +136,7 @@ async function request(path, signal, payload, a2a = false) {
   try { value = await response.json(); } catch (error) { if (error.name === 'AbortError') throw error; throw new UserError('The service returned an unexpected response. Please try again.'); }
   if (!response.ok) {
     if (response.status === 429) throw new UserError('Too many requests. Please wait a moment and try again.');
-    throw new UserError(messages[value.error] || 'We could not complete the test. Check your link and try again.');
+    throw new UserError(messages[value.error] || 'We could not check availability. Check your link and try again.');
   }
   return value;
 }
@@ -149,10 +150,13 @@ function wait(ms, signal) {
 async function publishedAgent(url, signal) {
   for (let attempt = 0; attempt < 5; attempt++) {
     const agent = await request('/agents', signal, {booking_page_url: url});
-    if (!validId(agent.id) || agent.identifier !== 'urn:aithos:calendar:agent:' + agent.id || agent.mock !== true) {
+    if (!validId(agent.id) || agent.identifier !== 'urn:aithos:calendar:agent:' + agent.id || typeof agent.mock !== 'boolean') {
       throw new UserError('The service returned an unexpected agent. Please try again.');
     }
-    if (agent.publication_status === 'published') return agent;
+    if (agent.publication_status === 'published') {
+      if (agent.mock) throw new UserError(messages.agent_upgrade_required);
+      return agent;
+    }
     if (agent.publication_status !== 'pending') throw new UserError('We could not prepare this link. Please try again.');
     loading('Getting your link ready…');
     if (attempt < 4) await wait(2000, signal);
@@ -169,7 +173,7 @@ async function run(action) {
   const timer = setTimeout(() => controller.abort(), 45000);
   try { await action(controller.signal); }
   catch (error) {
-    outcome('We couldn’t complete the test', error instanceof UserError ? error.message :
+    outcome('We couldn’t check availability', error instanceof UserError ? error.message :
       error.name === 'AbortError' ? 'This is taking longer than expected. Try the same link again in a moment.' :
       'We could not reach the service. Check your connection and try again.');
   } finally {
@@ -178,7 +182,7 @@ async function run(action) {
   }
 }
 const form = button => `<form id="booking-form"><fieldset><label for="booking-url">Your Google booking-page link</label><input id="booking-url" name="booking_page_url" type="url" placeholder="https://calendar.app.google/…" required maxlength="2048" autocomplete="url" spellcheck="false" aria-describedby="preview-note"><button class="submit" type="submit">${button}<span aria-hidden="true">→</span></button></fieldset></form><a class="help" href="/help/google-booking-page" target="_blank" rel="noopener">How do I get my booking-page link?</a><div id="status" class="status" role="status" aria-live="polite" aria-atomic="true" hidden></div>`;
-const note = '<p class="notice" id="preview-note"><strong>This is a test.</strong> Availability is simulated. No appointment will be booked and your Google calendar will not be changed.</p>';
+const note = '<p class="notice" id="preview-note"><strong>Availability preview.</strong> We read the times offered by both public booking pages for the next 30 days. No appointment will be booked.</p>';
 
 function home() {
   document.title = 'Calendar — Find a time together';
@@ -206,8 +210,8 @@ function home() {
   });
 }
 async function booking(id) {
-  document.title = 'Calendar — Try a shared time';
-  app.innerHTML = `<div class="eyebrow">A time for both of you</div><h1>Let’s find a<br>shared time.</h1><p class="intro">Add your Google booking-page link to try a match with this calendar.</p><section class="panel" aria-label="Find a shared test time"><div class="meeting"><strong>30-minute test meeting</strong><span>Simulated availability · no reservation</span></div>${form('Find a test time')}</section>${note}`;
+  document.title = 'Calendar — Find a shared time';
+  app.innerHTML = `<div class="eyebrow">A time for both of you</div><h1>Let’s find a<br>shared time.</h1><p class="intro">Add your Google booking-page link to find a time with this calendar.</p><section class="panel" aria-label="Find a shared time"><div class="meeting"><strong id="meeting-title">Loading meeting…</strong><span id="meeting-duration"></span></div>${form('Find a time')}</section>${note}`;
   document.querySelector('fieldset').disabled = true;
   loading('Loading the shared calendar…');
   app.setAttribute('aria-busy', 'true');
@@ -217,6 +221,13 @@ async function booking(id) {
     const card = await request('/agents/' + encodeURIComponent(id) + '/agent-card.json', controller.signal);
     const endpoint = card.supportedInterfaces?.find(i => i.protocolBinding === 'JSONRPC' && i.protocolVersion === '1.0' && i.tenant === id && i.url === API + '/a2a');
     if (!endpoint) throw new UserError('This shared link is not supported by the current test.');
+    const metadata = await request('/agents/' + encodeURIComponent(id) + '/schedule', controller.signal);
+    if (metadata.id !== id || metadata.mock !== false || !metadata.schedule?.title ||
+        !Number.isInteger(metadata.schedule.duration_minutes) || metadata.schedule.duration_minutes < 1 || metadata.schedule.duration_minutes > 1440) {
+      throw new UserError('We could not read the meeting details. Please try again.');
+    }
+    document.querySelector('#meeting-title').textContent = metadata.schedule.title;
+    document.querySelector('#meeting-duration').textContent = metadata.schedule.duration_minutes + ' minutes · ' + metadata.schedule.timezone;
     host = id;
     document.querySelector('#status').hidden = true;
     document.querySelector('fieldset').disabled = false;
@@ -231,29 +242,33 @@ async function booking(id) {
       loading('Preparing your calendar…');
       const peer = await publishedAgent(url, signal);
       if (peer.id === host) throw new UserError('This is the same booking page as the shared link. Paste a different Google booking-page link.');
-      loading('Comparing test availability…');
+      loading('Finding a time on both calendars…');
       traceId = crypto.randomUUID();
       const reply = await request('/a2a', signal, {jsonrpc: '2.0', id: crypto.randomUUID(), method: 'SendMessage', params: {
-        tenant: host, metadata: {calendarTraceId: traceId}, message: {messageId: crypto.randomUUID(), role: 'ROLE_USER', parts: [{data: {operation: 'find_common_slot', peer: peer.identifier, duration_minutes: DURATION}}]},
+        tenant: host, metadata: {calendarTraceId: traceId}, message: {messageId: crypto.randomUUID(), role: 'ROLE_USER', parts: [{data: {operation: 'find_common_slot', peer: peer.identifier}}]},
       }}, true);
-      if (reply.error) throw new UserError('The calendars could not complete this test. Please try again.');
+      if (reply.error) throw new UserError('The calendars could not check availability. Please try again.');
       const result = reply.result?.message?.parts?.find(p => p.data)?.data;
-      if (!result || result.mock !== true || result.reserved !== false || result.organizer !== 'urn:aithos:calendar:agent:' + host || result.peer !== peer.identifier || result.trace_id !== traceId) {
-        throw new UserError('We could not verify the test result. Please try again.');
+      if (!result || result.mock !== false || result.reserved !== false || result.organizer !== 'urn:aithos:calendar:agent:' + host || result.peer !== peer.identifier || result.trace_id !== traceId) {
+        throw new UserError('We could not verify the availability result. Please try again.');
       }
-      if (result.status === 'error') throw new UserError(messages[result.code] || 'The calendars could not complete this test. Please try again.');
+      if (result.status === 'error') throw new UserError(messages[result.code] || 'The calendars could not check availability. Please try again.');
+      if (result.schedule?.title && Number.isInteger(result.duration_minutes)) {
+        document.querySelector('#meeting-title').textContent = result.schedule.title;
+        document.querySelector('#meeting-duration').textContent = result.duration_minutes + ' minutes · ' + result.schedule.timezone;
+      }
       if (result.status === 'no_common_slot' && result.slot === null) {
-        outcome('No shared test time found', 'There is no matching 30-minute interval in the simulated availability. Nothing was booked.', '');
+        outcome('No shared time found', 'No complete host appointment fits the times offered by both pages in the next 30 days. Nothing was booked.', '');
         return;
       }
       const start = new Date(result.slot?.start), end = new Date(result.slot?.end);
-      if (result.status !== 'slot_found' || !Number.isFinite(start.getTime()) || end - start !== DURATION * 60000) {
+      if (result.status !== 'slot_found' || !Number.isFinite(start.getTime()) || !Number.isInteger(result.duration_minutes) || result.duration_minutes < 1 || result.duration_minutes > 1440 || end - start !== result.duration_minutes * 60000) {
         throw new UserError('We could not verify the proposed time. Please try again.');
       }
       const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
       const date = new Intl.DateTimeFormat(undefined, {weekday:'long', day:'numeric', month:'long', year:'numeric'}).format(start);
       const time = new Intl.DateTimeFormat(undefined, {hour:'2-digit', minute:'2-digit', hour12:false});
-      outcome('A shared test time was found', `${date}, ${time.format(start)}–${time.format(end)} (${zone}). These are simulated times; no appointment was booked.`, 'success');
+      outcome('A shared time was found', `${date}, ${time.format(start)}–${time.format(end)} (${zone}). No appointment has been booked.`, 'success');
     });
   });
 }

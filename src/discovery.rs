@@ -34,7 +34,7 @@ impl PeerError {
             Self::NotFound => "The requested peer is not in the catalog",
             Self::InvalidCard => "The peer card is invalid or outside the allowed agent origin",
             Self::Unavailable => "The peer could not be reached through A2A",
-            Self::InvalidResponse => "The peer did not return valid mock availability",
+            Self::InvalidResponse => "The peer did not return valid availability",
             Self::Timeout => "The peer exchange exceeded its time limit",
         }
     }
@@ -42,6 +42,7 @@ impl PeerError {
 
 pub struct PeerDirectory {
     http: Client,
+    live_http: Client,
     catalog_url: Url,
     agent_origin: Url,
     registry_origin: Option<Url>,
@@ -81,6 +82,11 @@ impl PeerDirectory {
             .redirect(reqwest::redirect::Policy::none())
             .build()?;
         Ok(Self {
+            live_http: Client::builder()
+                .connect_timeout(Duration::from_secs(2))
+                .timeout(Duration::from_secs(10))
+                .redirect(reqwest::redirect::Policy::none())
+                .build()?,
             http,
             catalog_url,
             agent_origin,
@@ -90,7 +96,7 @@ impl PeerDirectory {
 
     fn trusted_url(&self, value: &str, is_card: bool) -> Result<Url, PeerError> {
         let url = Url::parse(value).map_err(|_| PeerError::InvalidCard)?;
-        // Only this deployment's mock agents are enabled in this gate. The
+        // Only this deployment's agents are enabled in this gate. The
         // catalog may move to Aithos independently of the agent-serving origin.
         if !(url.origin() == self.agent_origin.origin()
             || (is_card
@@ -140,6 +146,7 @@ impl PeerDirectory {
         peer: &str,
         trace_id: &str,
         caller: &str,
+        window: Option<&crate::scheduling::Window>,
     ) -> Result<Availability, PeerError> {
         let catalog: AiCatalog = self
             .fetch(self.catalog_url.clone(), PeerError::DiscoveryUnavailable)
@@ -179,7 +186,11 @@ impl PeerDirectory {
             .no_defaults()
             .with_interceptor(Arc::new(a2a_client::middleware::LoggingInterceptor))
             .register(Arc::new(JsonRpcTransportFactory::new(Some(
-                self.http.clone(),
+                if window.is_some() {
+                    self.live_http.clone()
+                } else {
+                    self.http.clone()
+                },
             ))))
             .build();
         let (client, interface) = factory
@@ -193,20 +204,27 @@ impl PeerDirectory {
             recipient_tenant = interface.tenant.as_deref(),
         );
         // Only this leaf operation is sent, never another find_common_slot.
+        let mut operation = json!({"operation":"get_availability"});
+        if let Some(window) = window {
+            operation["window"] = serde_json::to_value(window).unwrap();
+        }
         let request = SendMessageRequest {
             tenant: None, // The SDK fills this from the selected AgentInterface.
-            message: Message::new(
-                Role::User,
-                vec![Part::data(json!({"operation":"get_availability"}))],
-            ),
+            message: Message::new(Role::User, vec![Part::data(operation)]),
             configuration: None,
             metadata: Some([(String::from("calendarTraceId"), json!(trace_id))].into()),
         };
-        let reply =
-            tokio::time::timeout(Duration::from_millis(2500), client.send_message(&request))
-                .await
-                .map_err(|_| PeerError::Timeout)?
-                .map_err(|_| PeerError::Unavailable)?;
+        let reply = tokio::time::timeout(
+            if window.is_some() {
+                Duration::from_secs(10)
+            } else {
+                Duration::from_millis(2500)
+            },
+            client.send_message(&request),
+        )
+        .await
+        .map_err(|_| PeerError::Timeout)?
+        .map_err(|_| PeerError::Unavailable)?;
         let SendMessageResponse::Message(message) = reply else {
             return Err(PeerError::InvalidResponse);
         };
@@ -228,12 +246,34 @@ impl PeerDirectory {
             serde_json::from_value(parts[0].clone()).map_err(|_| PeerError::InvalidResponse)?;
         if availability.status != "availability"
             || availability.agent != peer
-            || !availability.mock
+            || availability.mock != window.is_none()
             || availability.trace_id != trace_id
-            || availability.slots.len() > 100
+            || availability.slots.len() > if window.is_some() { 10_000 } else { 100 }
             || availability.slots.iter().any(|slot| slot.start >= slot.end)
         {
             return Err(PeerError::InvalidResponse);
+        }
+        if let Some(window) = window {
+            let info = availability
+                .schedule
+                .as_ref()
+                .ok_or(PeerError::InvalidResponse)?;
+            if info.window != *window
+                || !info.window.valid()
+                || !(1..=1440).contains(&info.duration_minutes)
+                || info.title.is_empty()
+                || info.title.len() > 2048
+                || info.timezone.is_empty()
+                || info.timezone.len() > 100
+                || availability.slots.iter().any(|s| {
+                    s.start < window.start
+                        || s.end > window.end
+                        || s.end - s.start
+                            != chrono::Duration::minutes(i64::from(info.duration_minutes))
+                })
+            {
+                return Err(PeerError::InvalidResponse);
+            }
         }
         Ok(availability)
     }

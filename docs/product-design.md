@@ -113,8 +113,8 @@ do not authenticate the visitor. Google may additionally require an email code.
 Check confirmation and the effect on both calendars in the controlled booking
 test; receiving an invitation does not itself prove the visitor’s calendar is busy.
 
-The reader and terminal preparation/booking command support this policy. The
-production web flow remains mocked until real provider integration is completed.
+The reader and terminal preparation/booking command support this policy. The web flow now supports real availability. Booking and conditional attendee
+fields remain a later integration gate.
 
 ## Error cases for the future booking flow
 
@@ -152,3 +152,9 @@ calendar reads, Anakin account, real bookings, A2A runtime, or application datab
 - [Create an appointment schedule](https://support.google.com/calendar/answer/10729749)
 - [Google email verification](https://support.google.com/calendar/answer/11902347)
 - [Anakin Google appointments actions](https://anakin.io/catalog/google_appointments)
+
+## Deterministic first release
+
+An LLM is not needed to resolve links, discover agents, compare offered intervals,
+or submit and verify a booking. Keep these operations deterministic. Natural
+language is an optional future interface to them, not a delivery dependency.

@@ -69,6 +69,12 @@ impl Drop for Setup {
     }
 }
 async fn setup(fail: bool) -> Setup {
+    setup_with_reader(fail, None).await
+}
+async fn setup_with_reader(
+    fail: bool,
+    reader: Option<Arc<dyn calendar::availability::AvailabilityReader>>,
+) -> Setup {
     let registry_socket = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let registry_origin = format!("http://{}", registry_socket.local_addr().unwrap());
     let writes = Arc::new(Mutex::new(HashMap::<String, String>::new()));
@@ -138,13 +144,14 @@ async fn setup(fail: bool) -> Setup {
     let base = format!("http://{}", socket.local_addr().unwrap());
     let store = Arc::new(MemoryStore::default());
     let pages = Arc::new(TestPages::default());
-    let app = calendar::app_with_pages(
+    let app = calendar::app_with_reader(
         &base,
         &format!("{base}/.well-known/ai-catalog.json"),
         store.clone(),
         Some(calendar::registry::Registry::new(&registry_origin).unwrap()),
         base.clone(),
         pages.clone(),
+        reader,
     )
     .unwrap();
     let network = app.clone();
@@ -331,5 +338,173 @@ async fn rejected_input_never_creates_records_and_cannot_override_existing_agent
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+}
+
+#[derive(Default)]
+struct LiveReader(std::sync::atomic::AtomicU8);
+#[async_trait::async_trait]
+impl calendar::availability::AvailabilityReader for LiveReader {
+    async fn read(
+        &self,
+        page: &BookingPage,
+        start: chrono::DateTime<chrono::Utc>,
+        end: chrono::DateTime<chrono::Utc>,
+    ) -> Result<calendar::availability::Schedule, calendar::availability::ReadError> {
+        use calendar::availability::{PageIdentity, ReadError, Schedule, Slot};
+        use chrono::Duration;
+        let mode = self.0.load(Ordering::SeqCst);
+        if mode == 2 {
+            return Err(ReadError::Unavailable);
+        }
+        let host = page.url == HOST;
+        let offered = start + Duration::days(1);
+        let slots = if host {
+            vec![Slot {
+                start: offered,
+                end: offered + Duration::minutes(60),
+            }]
+        } else {
+            vec![
+                Slot {
+                    start: offered,
+                    end: offered + Duration::minutes(30),
+                },
+                Slot {
+                    start: offered + Duration::minutes(if mode == 1 { 31 } else { 30 }),
+                    end: offered + Duration::minutes(if mode == 1 { 61 } else { 60 }),
+                },
+            ]
+        };
+        Ok(Schedule {
+            schedule_id: if host { "HostPage" } else { "GuestPage" }.into(),
+            identity: PageIdentity {
+                display_name: Some("Private Contact".into()),
+                email: Some("private@example.com".into()),
+            },
+            title: "Actual meeting <script>".into(),
+            timezone: "Europe/Paris".into(),
+            duration_minutes: if host { 60 } else { 30 },
+            window_start: start,
+            window_end: end,
+            slots,
+        })
+    }
+}
+async fn live_send(s: &Setup, host: &str, operation: Value) -> Value {
+    reqwest::Client::new().post(format!("{}/a2a",s.base)).json(&json!({"jsonrpc":"2.0","id":"live","method":"SendMessage","params":{
+        "tenant":host,"message":{"role":"ROLE_USER","messageId":"test","parts":[{"data":operation}]}
+    }})).send().await.unwrap().json().await.unwrap()
+}
+fn reply_data(reply: &Value) -> &Value {
+    reply["result"]["message"]["parts"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{reply}"))
+        .iter()
+        .find_map(|p| p.get("data"))
+        .unwrap()
+}
+#[tokio::test]
+async fn live_agents_use_host_duration_and_full_peer_coverage_without_contact_leaks() {
+    let reader = Arc::new(LiveReader::default());
+    let s = setup_with_reader(false, Some(reader.clone())).await;
+    let host = create(&s, HOST).await.1;
+    let guest = create(&s, GUEST).await.1;
+    assert_eq!(host["mock"], false);
+    let id = host["id"].as_str().unwrap();
+    let card: Value =
+        serde_json::from_str(&s.store.get(id).await.unwrap().unwrap().card_bytes).unwrap();
+    assert_eq!(card["version"], "0.4.0");
+    let metadata = reqwest::get(format!("{}/agents/{id}/schedule", s.base))
+        .await
+        .unwrap();
+    assert_eq!(metadata.headers()["cache-control"], "no-store");
+    let metadata: Value = metadata.json().await.unwrap();
+    assert_eq!(metadata["schedule"]["duration_minutes"], 60);
+    assert!(!metadata.to_string().contains("private@example.com"));
+    let operation = json!({"operation":"find_common_slot","peer":guest["identifier"]});
+    let reply = live_send(&s, id, operation.clone()).await;
+    let data = reply_data(&reply);
+    assert_eq!(data["status"], "slot_found", "{reply}");
+    assert_eq!(data["duration_minutes"], 60.0);
+    assert_eq!(data["mock"], false);
+    assert_eq!(data["reserved"], false);
+    assert!(!reply.to_string().contains("Private Contact"));
+    assert!(!reply.to_string().contains("private@example.com"));
+    // A one-minute gap in the visitor coverage must reject the whole host slot.
+    reader.0.store(1, Ordering::SeqCst);
+    let no_slot = live_send(&s, id, operation.clone()).await;
+    assert_eq!(reply_data(&no_slot)["status"], "no_common_slot");
+    assert!(reply_data(&no_slot)["slot"].is_null());
+    // A Google failure cannot fall back to the old 2030 interval.
+    reader.0.store(2, Ordering::SeqCst);
+    let failure = live_send(&s, id, operation.clone()).await;
+    assert_eq!(reply_data(&failure)["status"], "error");
+    assert_eq!(reply_data(&failure)["reserved"], false);
+    reader.0.store(0, Ordering::SeqCst);
+    let stale = live_send(
+        &s,
+        id,
+        json!({"operation":"find_common_slot","peer":guest["identifier"],"duration_minutes":30}),
+    )
+    .await;
+    assert_eq!(stale["error"]["code"], -32602);
+    let unknown = live_send(
+        &s,
+        id,
+        json!({"operation":"find_common_slot","peer":"urn:aithos:calendar:agent:missing"}),
+    )
+    .await;
+    assert_eq!(reply_data(&unknown)["code"], "peer_not_found");
+    let availability = live_send(&s, id, json!({"operation":"get_availability"})).await;
+    assert_eq!(reply_data(&availability)["mock"], false);
+    assert!(!availability.to_string().contains("private@example.com"));
+}
+
+#[tokio::test]
+async fn legacy_mock_links_require_upgrade_and_cannot_supply_live_availability() {
+    let s = setup(false).await;
+    let agent = create(&s, HOST).await.1;
+    let id = agent["id"].as_str().unwrap();
+    let response = reqwest::get(format!("{}/agents/{id}/schedule", s.base))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    let reply = live_send(&s,id,json!({"operation":"get_availability","window":{"start":"2030-01-01T00:00:00Z","end":"2030-01-02T00:00:00Z"}})).await;
+    assert_eq!(reply["error"]["code"], -32602);
+}
+
+#[tokio::test]
+#[ignore = "requires two GOOGLE_BOOKING_TEST_* URLs; Google reads only, registry is local"]
+async fn live_google_pages_collaborate_over_a2a_without_booking() {
+    let host_url = std::env::var("GOOGLE_BOOKING_TEST_HOST").unwrap();
+    let guest_url = std::env::var("GOOGLE_BOOKING_TEST_GUEST").unwrap();
+    let s = setup_with_reader(
+        false,
+        Some(Arc::new(
+            calendar::availability::GoogleHttpReader::new().unwrap(),
+        )),
+    )
+    .await;
+    let host = create(&s, &host_url).await.1;
+    let guest = create(&s, &guest_url).await.1;
+    for (caller, peer) in [(&host, &guest), (&guest, &host)] {
+        let reply = live_send(
+            &s,
+            caller["id"].as_str().unwrap(),
+            json!({"operation":"find_common_slot","peer":peer["identifier"]}),
+        )
+        .await;
+        let data = reply_data(&reply);
+        assert!(
+            ["slot_found", "no_common_slot"].contains(&data["status"].as_str().unwrap()),
+            "{reply}"
+        );
+        assert_eq!(data["mock"], false);
+        assert_eq!(data["reserved"], false);
+        println!(
+            "Live Google → A2A → Google: {}; duration={} minutes",
+            data["status"], data["duration_minutes"]
+        );
     }
 }

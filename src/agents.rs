@@ -4,6 +4,8 @@ use serde_json::json;
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct Agent {
     pub id: String,
+    #[serde(default)]
+    pub live: bool,
     pub name: String,
     pub slots: Vec<crate::scheduling::Slot>,
 }
@@ -17,6 +19,7 @@ pub fn fixtures() -> Vec<Agent> {
     .into_iter()
     .map(|(id, name, ranges)| Agent {
         id: id.into(),
+        live: false,
         name: name.into(),
         slots: ranges
             .into_iter()
@@ -38,6 +41,18 @@ impl Agent {
     }
 
     pub fn card(&self, base_url: &str) -> AgentCard {
+        if self.live {
+            return serde_json::from_value(json!({
+                "name":self.name, "description":"Reads public Google booking-page availability and finds a common offered host slot through A2A. Does not book appointments.",
+                "version":"0.4.0", "supportedInterfaces":[{"url":format!("{base_url}/a2a"),"protocolBinding":"JSONRPC","protocolVersion":"1.0","tenant":self.id}],
+                "capabilities":{}, "defaultInputModes":["text/plain","application/json"], "defaultOutputModes":["text/plain","application/json"],
+                "skills":[
+                    {"id":"greeting","name":"Greeting","description":"Returns a deterministic greeting.","tags":["greeting"]},
+                    {"id":"get_availability","name":"Public availability","description":"Reads offered slots from this agent's public Google booking page, within a bounded window of up to 30 days.","tags":["calendar","availability"],"inputModes":["application/json"]},
+                    {"id":"find_common_slot","name":"Find a common host slot","description":"Discovers a peer, requests real availability over A2A, and selects a complete host appointment covered by the peer's advertised intervals. Uses the host appointment duration. Does not reserve.","tags":["calendar","scheduling"],"inputModes":["application/json"]}
+                ]
+            })).expect("live card matches SDK schema");
+        }
         serde_json::from_value(json!({
             "name": self.name,
             "description": format!("{}'s Calendar test agent. Shares mock availability and finds common slots; does not book appointments.", self.name),

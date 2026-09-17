@@ -132,9 +132,9 @@ reconciliation before another attempt. Google may require email verification.
 ## Remaining integration
 
 1. Verify a real Anakin booking result and define strict confirmation parsing.
-2. Wire real reads and host-slot selection into A2A. Existing signed mock cards
-   need an explicit versioned update preserving agent identity and registry keys.
-   Keep old fixture agents and real page agents distinct.
+2. Accept the live A2A/browser availability gate and run the operator card upgrade
+   described in [live browser test](live-browser-test.md). It preserves agent
+   identity and registry keys; fixture-only agents stay mocked.
 3. Store durable booking operations in AWS before the provider write; use atomic
    creation and request reuse. Persist the provider job ID, distinguish pending,
    confirmed, failed and unknown outcomes. Never retry an uncertain write.
@@ -157,3 +157,6 @@ No LLM is needed for this deterministic provider integration.
 - Preparation printed no contact values and made no Anakin request. No appointment
   was booked. The production website remains on the mock flow until the remaining
   integration above is completed.
+
+Gate 5 now wires the reader into A2A and the browser; booking submission remains
+operator-only. No Anakin credential is loaded by the Lambda in this gate.

@@ -39,6 +39,49 @@ impl Registry {
         base: &str,
     ) -> Result<(Record, String), lambda_http::Error> {
         let key = SigningKey::random(&mut rand_core::OsRng);
+        self.prepare_signed(agent, booking_page_url, base, key)
+    }
+    /// Operator-only upgrade: preserve the tenant, signing key and registry URL.
+    pub fn upgrade_to_live(
+        &self,
+        record: &Record,
+        encoded_key: &str,
+        base: &str,
+    ) -> Result<Record, lambda_http::Error> {
+        if record.agent.live {
+            return Err("Agent is already live".into());
+        }
+        let page = record
+            .booking_page_url
+            .as_ref()
+            .ok_or("Fixture agents cannot be upgraded")?;
+        if (crate::booking_page::BookingPage { url: page.clone() }).agent_id() != record.agent.id {
+            return Err("Stored page does not match its tenant".into());
+        }
+        let previous: serde_json::Value = serde_json::from_str(&record.card_bytes)?;
+        if previous["version"] != "0.3.0" {
+            return Err("Unsupported migration source version".into());
+        }
+        let bytes = a2a_card::canonical::b64url_decode(encoded_key)?;
+        let key = SigningKey::from_slice(&bytes).map_err(|_| "Invalid recovery key")?;
+        let mut agent = record.agent.clone();
+        agent.live = true;
+        agent.slots.clear();
+        agent.name = format!("Booking page {}", &agent.id[..8]);
+        let (updated, _) =
+            self.prepare_signed(agent, record.booking_page_url.clone(), base, key)?;
+        if updated.registry_id != record.registry_id || updated.card_url != record.card_url {
+            return Err("Recovery key or registry differs from existing identity".into());
+        }
+        Ok(updated)
+    }
+    fn prepare_signed(
+        &self,
+        agent: Agent,
+        booking_page_url: Option<String>,
+        base: &str,
+        key: SigningKey,
+    ) -> Result<(Record, String), lambda_http::Error> {
         let point = key.verifying_key().to_encoded_point(false);
         let jwk = json!({"kty":"EC", "crv":"P-256", "x":b64url(point.x().unwrap()), "y":b64url(point.y().unwrap())});
         let kid = b64url(&Sha256::digest(canonicalize(&jwk)?));

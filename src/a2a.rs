@@ -14,6 +14,7 @@ use std::time::Duration;
 /// Immediate messages only: no task store or work left running after a response.
 pub struct CalendarHandler {
     pub directory: PeerDirectory,
+    pub reader: Option<std::sync::Arc<dyn crate::availability::AvailabilityReader>>,
     pub store: std::sync::Arc<dyn crate::storage::AgentStore>,
 }
 
@@ -45,10 +46,123 @@ impl CalendarHandler {
         logging::server_call(method, tenant, &new_message_id(), async {
             self.agent(tenant).await?;
             Err(A2AError::unsupported_operation(
-                "This mock agent only supports immediate SendMessage responses",
+                "This agent only supports immediate SendMessage responses",
             ))
         })
         .await
+    }
+    async fn read_live(
+        &self,
+        agent: &crate::agents::Agent,
+        window: &crate::scheduling::Window,
+    ) -> Result<crate::availability::Schedule, &'static str> {
+        let reader = self.reader.as_ref().ok_or("availability_unavailable")?;
+        let record = self
+            .store
+            .get(&agent.id)
+            .await
+            .map_err(|_| "storage_unavailable")?
+            .ok_or("availability_unavailable")?;
+        let url = record.booking_page_url.ok_or("availability_unavailable")?;
+        tokio::time::timeout(
+            Duration::from_secs(8),
+            reader.read(
+                &crate::booking_page::BookingPage { url },
+                window.start,
+                window.end,
+            ),
+        )
+        .await
+        .map_err(|_| "timeout")?
+        .map_err(|_| "availability_unavailable")
+    }
+    async fn handle_live(
+        &self,
+        agent: &crate::agents::Agent,
+        operation: Operation,
+        trace_id: &str,
+    ) -> Result<SendMessageResponse, A2AError> {
+        use crate::scheduling::{ScheduleInfo, Window};
+        let error = |code: &str, peer: Option<&str>| {
+            structured_reply(
+                "Availability could not be checked; nothing was booked",
+                json!({"status":"error", "code":code, "organizer":agent.identifier(), "peer":peer,
+                "mock":false,"reserved":false,"trace_id":trace_id}),
+            )
+        };
+        match operation {
+            Operation::GetAvailability { window } => {
+                let window = window.unwrap_or_else(Window::next_month);
+                if !window.valid() {
+                    return Err(A2AError::invalid_params("Invalid availability window"));
+                }
+                let schedule = match self.read_live(agent, &window).await {
+                    Ok(s) => s,
+                    Err(code) => return Ok(error(code, None)),
+                };
+                let availability = Availability {
+                    status: "availability".into(),
+                    agent: agent.identifier(),
+                    slots: schedule.slots.clone(),
+                    mock: false,
+                    trace_id: trace_id.into(),
+                    schedule: Some(ScheduleInfo::from(&schedule)),
+                };
+                Ok(structured_reply(
+                    "Offered public booking slots; no booking made",
+                    serde_json::to_value(availability).unwrap(),
+                ))
+            }
+            Operation::FindCommonSlot {
+                peer,
+                duration_minutes,
+            } => {
+                if peer.is_empty() || peer.len() > 256 || peer == agent.identifier() {
+                    return Err(A2AError::invalid_params("Provide another peer identifier"));
+                }
+                let window = Window::next_month();
+                // Both reads run concurrently. The peer read still goes through discovery and A2A.
+                let outcome = tokio::time::timeout(Duration::from_secs(15), async {
+                    let (host, peer_result) = tokio::join!(
+                        self.read_live(agent, &window),
+                        self.directory
+                            .availability(&peer, trace_id, &agent.id, Some(&window))
+                    );
+                    Ok::<_, &'static str>((host?, peer_result.map_err(|e| e.code())?))
+                })
+                .await
+                .unwrap_or(Err("timeout"));
+                let (host, peer_availability) = match outcome {
+                    Ok(value) => value,
+                    Err(code) => return Ok(error(code, Some(&peer))),
+                };
+                if duration_minutes.is_some_and(|d| d != host.duration_minutes) {
+                    return Err(A2AError::invalid_params(
+                        "duration_minutes must match the host appointment duration; omit it to use the current duration",
+                    ));
+                }
+                let Some(visitor) = peer_availability.into_schedule() else {
+                    return Ok(error("invalid_peer_response", Some(&peer)));
+                };
+                let slot = crate::availability::first_host_slot(&host, &visitor);
+                let status = if slot.is_some() {
+                    "slot_found"
+                } else {
+                    "no_common_slot"
+                };
+                tracing::info!(event = "negotiation_completed", status, mock = false);
+                Ok(structured_reply(
+                    if slot.is_some() {
+                        "A real common host slot was found; nothing was booked"
+                    } else {
+                        "No common offered host slot in the next 30 days"
+                    },
+                    json!({"status":status,"organizer":agent.identifier(),"peer":peer,"slot":slot,
+                        "duration_minutes":host.duration_minutes,"schedule":ScheduleInfo::from(&host),
+                        "mock":false,"reserved":false,"trace_id":trace_id}),
+                ))
+            }
+        }
     }
     async fn handle_message(
         &self,
@@ -101,17 +215,26 @@ impl CalendarHandler {
             )
         })?;
         let operation_name = match &operation {
-            Operation::GetAvailability => "get_availability",
+            Operation::GetAvailability { .. } => "get_availability",
             Operation::FindCommonSlot { .. } => "find_common_slot",
         };
         tracing::info!(event = "operation_received", operation = operation_name);
+        if agent.live {
+            return self.handle_live(&agent, operation, trace_id).await;
+        }
         match operation {
-            Operation::GetAvailability => {
+            Operation::GetAvailability { window } => {
+                if window.is_some() {
+                    return Err(A2AError::invalid_params(
+                        "Mock agent cannot supply real availability",
+                    ));
+                }
                 let availability = Availability {
                     status: "availability".into(),
                     agent: agent.identifier(),
                     slots: agent.availability(),
                     mock: true,
+                    schedule: None,
                     trace_id: trace_id.to_owned(),
                 };
                 Ok(structured_reply(
@@ -123,6 +246,9 @@ impl CalendarHandler {
                 peer,
                 duration_minutes,
             } => {
+                let duration_minutes = duration_minutes.ok_or_else(|| {
+                    A2AError::invalid_params("Mock scheduling requires duration_minutes")
+                })?;
                 if !(1..=480).contains(&duration_minutes)
                     || peer.is_empty()
                     || peer.len() > 256
@@ -134,7 +260,8 @@ impl CalendarHandler {
                 }
                 let outcome = tokio::time::timeout(
                     Duration::from_secs(10),
-                    self.directory.availability(&peer, trace_id, &agent.id),
+                    self.directory
+                        .availability(&peer, trace_id, &agent.id, None),
                 )
                 .await
                 .unwrap_or(Err(PeerError::Timeout));

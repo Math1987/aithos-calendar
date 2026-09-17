@@ -68,6 +68,18 @@ pub fn app_with_pages(
     website: String,
     pages: Arc<dyn booking_page::BookingPages>,
 ) -> Result<Router, lambda_http::Error> {
+    app_with_reader(base_url, catalog_url, store, registry, website, pages, None)
+}
+
+pub fn app_with_reader(
+    base_url: &str,
+    catalog_url: &str,
+    store: Arc<dyn storage::AgentStore>,
+    registry: Option<registry::Registry>,
+    website: String,
+    pages: Arc<dyn booking_page::BookingPages>,
+    reader: Option<Arc<dyn availability::AvailabilityReader>>,
+) -> Result<Router, lambda_http::Error> {
     let directory = discovery::PeerDirectory::new_with_registry(
         base_url,
         catalog_url,
@@ -79,6 +91,7 @@ pub fn app_with_pages(
         registry,
         website,
         pages,
+        reader: reader.clone(),
     });
     let onboarding = Router::new()
         .route("/agents", post(identities::create))
@@ -87,10 +100,14 @@ pub fn app_with_pages(
     let routes = Router::new()
         .route("/.well-known/ai-catalog.json", get(catalog))
         .route("/agents/{tenant}/agent-card.json", get(card))
+        .route("/agents/{tenant}/schedule", get(identities::schedule))
         .merge(onboarding)
         .with_state(state);
-    let protocol =
-        a2a_server::jsonrpc::jsonrpc_router(Arc::new(a2a::CalendarHandler { directory, store }));
+    let protocol = a2a_server::jsonrpc::jsonrpc_router(Arc::new(a2a::CalendarHandler {
+        directory,
+        store,
+        reader,
+    }));
     Ok(Router::new()
         .route(
             "/health",
@@ -111,7 +128,7 @@ async fn catalog(State(state): State<Arc<Identities>>) -> Response {
     records.sort_by(|a, b| a.agent.id.cmp(&b.agent.id));
     let value = json!({"specVersion":"1.0", "host":{"displayName":"Calendar agents"}, "entries":records.iter().map(|r| json!({
         "identifier":r.agent.identifier(),"displayName":r.agent.name,"type":"application/a2a-agent-card+json",
-        "url":r.card_url,"description":"Mock scheduling agent; no calendar access or booking.","tags":["calendar","mock"]
+        "url":r.card_url,"description":if r.agent.live {"Real public availability; no booking."} else {"Mock scheduling agent; no calendar access or booking."},"tags":if r.agent.live {vec!["calendar","availability"]} else {vec!["calendar","mock"]}
     })).collect::<Vec<_>>()});
     // Match the discovery client's bounded document size, without partial results.
     if serde_json::to_vec(&value).map_or(true, |v| v.len() > 64 * 1024) {

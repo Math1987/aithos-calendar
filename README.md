@@ -16,6 +16,12 @@ a sharing link, paste a second booking page, and display the mock A2A result.
 No appointment is booked. See the [browser guide](docs/browser-test.md).
 Repository: https://github.com/Math1987/aithos-calendar (public).
 
+Gate 5 is implemented on `codex/live-calendar-providers`: real Google availability,
+actual meeting metadata, deterministic host-slot selection through A2A, and browser
+success/no-match/error states. Deployment and the existing signed-card upgrade are
+pending renewed operator AWS credentials. See the [manual gate 5 test](docs/live-browser-test.md).
+The first usable booking version will not require an LLM; Bedrock is optional later.
+
 ## Documentation
 
 - [Real provider checks (in progress)](docs/live-providers.md)

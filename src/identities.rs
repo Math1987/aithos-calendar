@@ -23,6 +23,7 @@ pub struct Identities {
     pub registry: Option<Registry>,
     pub website: String,
     pub pages: Arc<dyn BookingPages>,
+    pub reader: Option<Arc<dyn crate::availability::AvailabilityReader>>,
 }
 
 /// Public onboarding. No caller identity, browser session or credentials required.
@@ -59,10 +60,14 @@ fn page_failure(error: PageError) -> Response {
     )
 }
 fn view(state: &Identities, record: &Record) -> Value {
-    json!({"id":record.agent.id, "identifier":record.agent.identifier(), "name":record.agent.name,
+    let mut value = json!({"id":record.agent.id, "identifier":record.agent.identifier(), "name":record.agent.name,
         "booking_page_url":record.booking_page_url, "share_url":format!("{}/book/{}",state.website.trim_end_matches('/'),record.agent.id),
         "mock_availability":record.agent.slots, "registry_id":record.registry_id, "agent_card_url":record.card_url,
-        "publication_status":if record.published {"published"} else {"pending"}, "mock":true, "reserved":false})
+        "publication_status":if record.published {"published"} else {"pending"}, "mock":!record.agent.live, "reserved":false});
+    if record.agent.live {
+        value.as_object_mut().unwrap().remove("mock_availability");
+    }
+    value
 }
 async fn publish_record(state: &Identities, mut record: Record) -> Response {
     if record.published {
@@ -117,15 +122,26 @@ pub async fn create(
             Ok(Err(error)) => return page_failure(error),
             Err(_) => return page_failure(PageError::Unavailable),
         }
-        // This gate binds the real page identity, but does not read its availability.
-        // The same clearly fictitious 30-minute interval is used for every new agent.
         let agent = Agent {
             id: id.clone(),
-            name: format!("Booking page {} (mock)", &id[..8]),
-            slots: vec![Slot {
-                start: "2030-01-15T09:30:00Z".parse().unwrap(),
-                end: "2030-01-15T10:00:00Z".parse().unwrap(),
-            }],
+            live: state.reader.is_some(),
+            name: format!(
+                "Booking page {}{}",
+                &id[..8],
+                if state.reader.is_some() {
+                    ""
+                } else {
+                    " (mock)"
+                }
+            ),
+            slots: if state.reader.is_some() {
+                vec![]
+            } else {
+                vec![Slot {
+                    start: "2030-01-15T09:30:00Z".parse().unwrap(),
+                    end: "2030-01-15T10:00:00Z".parse().unwrap(),
+                }]
+            },
         };
         let (candidate, key) = match registry.prepare(agent, Some(page.url.clone()), &state.base) {
             Ok(value) => value,
@@ -148,4 +164,40 @@ pub async fn create(
         return failure(StatusCode::CONFLICT, "booking_page_identity_conflict");
     }
     publish_record(&state, record).await
+}
+
+/// Live meeting metadata only; never expose attendee contact details here.
+pub async fn schedule(
+    State(state): State<Arc<Identities>>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Response {
+    let response = async {
+        if !crate::valid_tenant(&id) {
+            return failure(StatusCode::NOT_FOUND, "unknown_agent");
+        }
+        let record = match state.store.get(&id).await {
+            Ok(Some(r)) if r.published => r,
+            Ok(_) => return failure(StatusCode::NOT_FOUND, "unknown_agent"),
+            Err(_) => return failure(StatusCode::SERVICE_UNAVAILABLE, "storage_unavailable"),
+        };
+        if !record.agent.live {
+            return failure(StatusCode::CONFLICT, "agent_upgrade_required");
+        }
+        let (Some(url), Some(reader)) = (record.booking_page_url, &state.reader) else {
+            return failure(StatusCode::SERVICE_UNAVAILABLE, "availability_unavailable");
+        };
+        let window = crate::scheduling::Window::next_month();
+        match reader.read(&crate::booking_page::BookingPage {url}, window.start, window.end).await {
+            Ok(s) => Json(json!({"id":id, "mock":false, "reserved":false, "schedule":crate::scheduling::ScheduleInfo::from(&s)})).into_response(),
+            Err(_) => failure(StatusCode::SERVICE_UNAVAILABLE, "availability_unavailable"),
+        }
+    };
+    let mut response = tokio::time::timeout(Duration::from_secs(9), response)
+        .await
+        .unwrap_or_else(|_| failure(StatusCode::GATEWAY_TIMEOUT, "timeout"));
+    response.headers_mut().insert(
+        "cache-control",
+        axum::http::HeaderValue::from_static("no-store"),
+    );
+    response
 }

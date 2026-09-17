@@ -4,14 +4,40 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Operation {
-    GetAvailability,
+    GetAvailability {
+        #[serde(default)]
+        window: Option<Window>,
+    },
     FindCommonSlot {
         peer: String,
-        #[serde(deserialize_with = "whole_minutes")]
-        duration_minutes: u16,
+        #[serde(default, deserialize_with = "optional_minutes")]
+        duration_minutes: Option<u16>,
     },
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Window {
+    pub start: DateTime<Utc>,
+    pub end: DateTime<Utc>,
+}
+impl Window {
+    pub fn next_month() -> Self {
+        let start: DateTime<Utc> = std::time::SystemTime::now().into();
+        Self {
+            start,
+            end: start + Duration::days(30),
+        }
+    }
+    pub fn valid(&self) -> bool {
+        self.end > self.start && self.end - self.start <= Duration::days(30)
+    }
+}
+fn optional_minutes<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<u16>, D::Error> {
+    whole_minutes(deserializer).map(Some)
+}
 // A2A data parts travel through protobuf Struct, whose numbers are doubles.
 // Accept 30 and 30.0 as the same whole-minute value, never truncate fractions.
 fn whole_minutes<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u16, D::Error> {
@@ -39,6 +65,45 @@ pub struct Availability {
     pub slots: Vec<Slot>,
     pub mock: bool,
     pub trace_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schedule: Option<ScheduleInfo>,
+}
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScheduleInfo {
+    pub title: String,
+    pub timezone: String,
+    #[serde(deserialize_with = "whole_minutes")]
+    pub duration_minutes: u16,
+    pub window: Window,
+}
+impl From<&crate::availability::Schedule> for ScheduleInfo {
+    fn from(s: &crate::availability::Schedule) -> Self {
+        Self {
+            title: s.title.clone(),
+            timezone: s.timezone.clone(),
+            duration_minutes: s.duration_minutes,
+            window: Window {
+                start: s.window_start,
+                end: s.window_end,
+            },
+        }
+    }
+}
+impl Availability {
+    pub fn into_schedule(self) -> Option<crate::availability::Schedule> {
+        let info = self.schedule?;
+        Some(crate::availability::Schedule {
+            schedule_id: self.agent,
+            identity: Default::default(),
+            title: info.title,
+            timezone: info.timezone,
+            duration_minutes: info.duration_minutes,
+            window_start: info.window.start,
+            window_end: info.window.end,
+            slots: self.slots,
+        })
+    }
 }
 
 /// Find the earliest full interval, independently of input ordering or time zone.

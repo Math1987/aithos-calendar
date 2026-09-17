@@ -4,7 +4,9 @@
 
 The service exposes health, persistent public page agents, mock A2A collaboration,
 and a minimal browser test. DynamoDB stores signed identities; Aithos publishes
-the cards. Google availability and real booking remain unimplemented. See the
+the cards. Production remains mocked until the live availability gate is deployed and cards
+are upgraded. The development branch implements real reads and an operator-only
+Anakin transport. See [gate 5](live-browser-test.md). See the
 [browser guide](browser-test.md) and [public onboarding](public-onboarding.md).
 
 - Repository: https://github.com/Math1987/aithos-calendar (public).
@@ -140,10 +142,10 @@ rollback. S3 state versioning is a recovery aid, not a substitute for reconcilia
 
 ## Cost footprint
 
-Persistent resources are two S3 buckets, IAM roles, certificates, log groups, a
+Persistent resources are two S3 buckets, a DynamoDB agent table, IAM roles, certificates, log groups, a
 Lambda function, HTTP API and CloudFront distribution, plus records in an existing
 zone. Usage can incur storage, requests, execution, logs and transfer charges.
-There is no NAT, provisioned concurrency, database, container service, or new DNS
+There is no NAT, provisioned concurrency, container service, or new DNS
 zone. Usage depends on onboarding and A2A traffic; actual billing depends on
 traffic and account allowances. No fixed monthly price is promised.
 

@@ -71,7 +71,12 @@ def main(catalog_url):
         response = send(interface, tenant)
         assert response["result"]["message"]["parts"][0]["text"] == f"Hello from {card['name']}", response
         availability = data(send(interface, tenant, {"operation": "get_availability"}))
-        assert availability["agent"] == entry["identifier"] and availability["mock"] is True
+        assert availability["agent"] == entry["identifier"]
+        assert availability["mock"] is (card["version"] != "0.4.0"), availability
+        if not availability["mock"]:
+            metadata = fetch(f"{origin.scheme}://{origin.netloc}/agents/{tenant}/schedule")
+            assert metadata["mock"] is False and 1 <= metadata["schedule"]["duration_minutes"] <= 1440
+            assert "identity" not in availability and "email" not in availability
         agents.append((entry, interface, availability))
         print(f"PASS catalog → {card['name']} card → A2A greeting and availability")
     for tenant in [None, "unknown"]:
@@ -81,7 +86,27 @@ def main(catalog_url):
     if len(agents) < 2:
         print(f"PASS dynamic catalog ready ({len(agents)} agents); peer acceptance requires two published agents")
         return
-    for caller, peer in [(agents[0], agents[1]), (agents[1], agents[0])]:
+    live = [a for a in agents if not a[2]["mock"]]
+    mocks = [a for a in agents if a[2]["mock"]]
+    pair = live[:2] if len(live) >= 2 else mocks[:2]
+    if len(pair) < 2:
+        print("PASS individual agents; pair acceptance requires two agents in the same mode")
+        return
+    for caller, peer in [(pair[0], pair[1]), (pair[1], pair[0])]:
+        if not caller[2]["mock"]:
+            result = data(send(caller[1], caller[1]["tenant"], {
+                "operation":"find_common_slot", "peer":peer[0]["identifier"],
+            }))
+            assert result["mock"] is False and result["reserved"] is False, result
+            assert result["status"] in ["slot_found", "no_common_slot"], result
+            uuid.UUID(result["trace_id"])
+            if result["status"] == "slot_found":
+                parse = lambda v: datetime.datetime.fromisoformat(v.replace("Z", "+00:00"))
+                assert parse(result["slot"]["end"]) - parse(result["slot"]["start"]) == datetime.timedelta(minutes=result["duration_minutes"])
+            else:
+                assert result["slot"] is None
+            print(f"PASS live A2A exchange: {result['status']}; trace_id={result['trace_id']}")
+            continue
         for duration in [30, 60]:
             result = data(send(caller[1], caller[1]["tenant"], {
                 "operation": "find_common_slot", "peer": peer[0]["identifier"], "duration_minutes": duration,

@@ -34,12 +34,16 @@ async fn main() -> Result<(), Error> {
             table,
         ));
         let registry = calendar::registry::Registry::new(&std::env::var("REGISTRY_ORIGIN")?)?;
-        calendar::app_with_store(
+        calendar::app_with_reader(
             &base_url,
             &catalog_url,
             store,
             Some(registry),
             std::env::var("CALENDAR_WEBSITE_URL")?,
+            std::sync::Arc::new(calendar::booking_page::GoogleBookingPages::new()?),
+            Some(std::sync::Arc::new(
+                calendar::availability::GoogleHttpReader::new()?,
+            )),
         )?
     };
     if let Some(address) = listen {
