@@ -137,3 +137,10 @@ cannot submit a booking. Generic errors, missing jobs and concurrent changes
 leave the operation locked. A provider support report is prepared privately;
 it has not been sent. The live booking gate remains blocked on provider behavior
 and validation of a successful booking confirmation.
+
+Correction deployed as `46ed675` via [Actions run 35184143100](https://github.com/Math1987/aithos-calendar/actions/runs/35184143100), successful in 6m42s with 42 tests.
+The existing failed operation was reconciled after rereading its Anakin job.
+Production now returns `slot_unavailable`, retains the operation record, and the
+three guards owned by that operation were verified absent. No new booking was
+submitted. The isolated browser test verified the explicit rejection message and
+Back to available times without an automatic booking retry.
