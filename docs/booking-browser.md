@@ -93,3 +93,17 @@ A controlled operator test can pin an explicitly approved time with
 `BOOKING_EXPECTED_START=2026-09-18T07:00:00Z` when running the existing booking
 example. The journal must be new, private, and polled rather than resubmitted.
 The pin causes an abort if the earliest common slot changes.
+
+## Deployment and read-only acceptance
+
+Deployed commit `ad291bc` via [Actions run 35182437866](https://github.com/Math1987/aithos-calendar/actions/runs/35182437866), successful in 7m13s.
+All 40 offline tests, Linux build, health, A2A and browser/CORS checks passed.
+Production GET for an absent operation returns 404 from the booking store; an
+invalid POST returns 400 before any provider call. IAM simulation allows only the
+configured secret and booking-table actions needed by the runtime.
+
+The live browser test with the two existing Google pages proposed **18 September
+2026, 09:00–09:30 Europe/Paris**, showed “Nothing is booked yet” and a separate
+**Book** button. We stopped there. No real booking was submitted by the agent.
+The next manual acceptance is the owner's Book click and checking the resulting
+Google confirmation and Anakin job. Gate 6 remains in manual validation.

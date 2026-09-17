@@ -199,3 +199,12 @@ card version 0.4.0; legacy fixture-only agents remain mocked and cannot supply
 availability to live agents. No runtime permission to read signing keys was added.
 Registry readbacks were cached for up to 60 seconds during upgrade; replaying the
 same migration completed both updates without changing IDs or creating agents.
+
+## Booking pilot deployment
+
+Commit `ad291bc` adds `calendar-production-bookings`, POST `/bookings`, GET
+`/bookings/{id}`, and the Secrets Manager reference. Lambda timeout is 28 seconds;
+API timeout remains 29 seconds. Bootstrap permissions and the secret were prepared
+separately. The real booking action is triggered only by the browser's **Book**
+button, after an availability proposal. See [booking pilot](booking-browser.md)
+for duplicate guards, unknown outcomes, and the first confirmation-validation step.
