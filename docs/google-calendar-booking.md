@@ -140,3 +140,23 @@ signed card bytes are preserved.
 - [Google: event fields and RSVP-only updates](https://developers.google.com/workspace/calendar/api/v3/reference/events)
 - [Google: event insertion](https://developers.google.com/workspace/calendar/api/v3/reference/events/insert)
 - [Google: OAuth web-server flow](https://developers.google.com/identity/protocols/oauth2/web-server)
+
+## Deployment evidence — 2026-09-17
+
+- Code commit: `b06d7b825e2da148d8b1feca9d33940f95e51a08`.
+- [Production deployment](https://github.com/Math1987/aithos-calendar/actions/runs/35203717100)
+  succeeded in 8m20s, including 59 offline Rust tests, health, discovery/A2A,
+  website/CORS and authenticated-route smoke checks. Two legacy live-page tests
+  remain opt-in.
+- Bootstrap added exactly the KMS key, alias and runtime policy. IAM simulation
+  allows encryption/decryption with the Calendar/account context and denies
+  both operations without it.
+- The two existing account identities were upgraded to card version `0.6.0`,
+  preserving their signing identities and share/registry URLs. Registry and API
+  card bytes match. Both reject anonymous availability requests. Registry cache
+  propagation took up to its advertised 60-second TTL.
+- Browser preview verified proposal, explicit confirmation, success and a host
+  without Calendar authorization. The published account page was reloaded and
+  checked separately.
+- No real meeting was created during automated or browser verification. The two
+  users must still grant Calendar consent and perform the live acceptance test.
