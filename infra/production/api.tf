@@ -25,6 +25,8 @@ resource "aws_lambda_function" "health" {
     variables = {
       CALENDAR_PUBLIC_URL  = "https://${local.api_domain}"
       CATALOG_URL          = "https://${local.api_domain}/.well-known/ai-catalog.json"
+      BOOKINGS_TABLE       = aws_dynamodb_table.bookings.name
+      ANAKIN_SECRET_ID     = "calendar/production/anakin"
       AGENTS_TABLE         = aws_dynamodb_table.agents.name
       REGISTRY_ORIGIN      = "https://registry.aithos.world"
       CALENDAR_WEBSITE_URL = "https://${local.website_domain}"
@@ -89,10 +91,12 @@ resource "aws_apigatewayv2_api_mapping" "api" {
 # Discovery and A2A share the existing function and integration.
 locals {
   agent_routes = {
-    catalog  = { method = "GET", path = "/.well-known/ai-catalog.json", invoke_path = "/.well-known/ai-catalog.json" }
-    schedule = { method = "GET", path = "/agents/{tenant}/schedule", invoke_path = "/agents/*/schedule" }
-    cards    = { method = "GET", path = "/agents/{tenant}/agent-card.json", invoke_path = "/agents/*/agent-card.json" }
-    a2a      = { method = "POST", path = "/a2a", invoke_path = "/a2a" }
+    catalog        = { method = "GET", path = "/.well-known/ai-catalog.json", invoke_path = "/.well-known/ai-catalog.json" }
+    schedule       = { method = "GET", path = "/agents/{tenant}/schedule", invoke_path = "/agents/*/schedule" }
+    cards          = { method = "GET", path = "/agents/{tenant}/agent-card.json", invoke_path = "/agents/*/agent-card.json" }
+    book           = { method = "POST", path = "/bookings", invoke_path = "/bookings" }
+    booking_status = { method = "GET", path = "/bookings/{id}", invoke_path = "/bookings/*" }
+    a2a            = { method = "POST", path = "/a2a", invoke_path = "/a2a" }
   }
 }
 

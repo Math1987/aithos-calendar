@@ -13,7 +13,8 @@ pub struct Attendee {
     pub email: String,
 }
 /// Values requested only when the page's contact details are incomplete.
-#[derive(Default)]
+#[derive(Clone, Default, serde::Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct AttendeeDetails {
     pub first_name: Option<String>,
     pub last_name: Option<String>,
@@ -235,6 +236,9 @@ pub enum JobStatus {
 }
 #[async_trait]
 pub trait BookingProvider: Send + Sync {
+    async fn ready(&self) -> Result<(), BookingError> {
+        Ok(())
+    }
     async fn submit(&self, request: &BookingRequest) -> Result<String, BookingError>;
     async fn status(&self, job_id: &str) -> Result<JobStatus, BookingError>;
 }
@@ -484,5 +488,53 @@ mod tests {
         );
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         server.abort();
+    }
+}
+
+/// Fail closed until the provider's real booking confirmation schema is verified.
+pub fn confirmed(_data: &Value, _request: &crate::booking_store::BookingOperation) -> bool {
+    false
+}
+
+/// Cache a successfully loaded provider client in each warm Lambda environment.
+/// Health and read-only A2A requests never need the booking secret.
+pub struct SecretsBooking {
+    client: aws_sdk_secretsmanager::Client,
+    secret_id: String,
+    provider: tokio::sync::OnceCell<AnakinBooking>,
+}
+impl SecretsBooking {
+    pub fn new(client: aws_sdk_secretsmanager::Client, secret_id: String) -> Self {
+        Self {
+            client,
+            secret_id,
+            provider: tokio::sync::OnceCell::new(),
+        }
+    }
+    async fn get(&self) -> Result<&AnakinBooking, BookingError> {
+        self.provider
+            .get_or_try_init(|| async {
+                let result = self
+                    .client
+                    .get_secret_value()
+                    .secret_id(&self.secret_id)
+                    .send()
+                    .await
+                    .map_err(|_| BookingError::NotConfigured)?;
+                AnakinBooking::new(result.secret_string().ok_or(BookingError::NotConfigured)?)
+            })
+            .await
+    }
+}
+#[async_trait]
+impl BookingProvider for SecretsBooking {
+    async fn ready(&self) -> Result<(), BookingError> {
+        self.get().await.map(|_| ())
+    }
+    async fn submit(&self, request: &BookingRequest) -> Result<String, BookingError> {
+        self.get().await?.submit(request).await
+    }
+    async fn status(&self, job_id: &str) -> Result<JobStatus, BookingError> {
+        self.get().await?.status(job_id).await
     }
 }

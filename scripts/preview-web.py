@@ -10,10 +10,12 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--port', type=int, default=3189)
 parser.add_argument('--result', choices=['slot_found', 'no_common_slot', 'error', 'invalid_response'], default='slot_found')
 parser.add_argument('--pending-once', action='store_true')
+parser.add_argument('--booking-result', choices=['booked','unknown','failed','missing'], default='booked')
 args = parser.parse_args()
 origin = f'http://127.0.0.1:{args.port}'
 root = Path(__file__).resolve().parents[1]
 seen = set()
+bookings = {}
 
 class Handler(BaseHTTPRequestHandler):
     def reply(self, value, status=200):
@@ -23,6 +25,14 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps(value).encode())
 
     def do_GET(self):
+        if self.path.startswith('/bookings/'):
+            op = bookings.get(self.path.split('/')[-1])
+            if op is None:
+                self.reply({'error':'unknown_booking'},404)
+            else:
+                status = 'booked' if args.booking_result == 'missing' else args.booking_result
+                self.reply({**op,'status':status,'reserved':status=='booked'})
+            return
         if self.path.startswith('/agents/'):
             tenant = self.path.split('/')[2]
             if tenant not in ['test-host', 'test-guest']:
@@ -52,6 +62,13 @@ class Handler(BaseHTTPRequestHandler):
             self.reply({'id': tenant, 'identifier': 'urn:aithos:calendar:agent:' + tenant,
                         'share_url': origin + '/book/' + tenant, 'mock': False,
                         'publication_status': 'pending' if pending else 'published'}, 202 if pending else 200)
+        elif self.path == '/bookings':
+            if args.booking_result == 'missing' and not value.get('attendee', {}).get('email'):
+                self.reply({'error':'attendee_details_required','missing_fields':['email']},422)
+                return
+            op = {k:value[k] for k in ['id','host','peer','slot']}
+            bookings[op['id']] = op
+            self.reply({**op,'status':'pending','reserved':False,'retry_after_ms':3000},202)
         elif self.path == '/a2a':
             params = value['params']
             request = params['message']['parts'][0]['data']

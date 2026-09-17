@@ -73,6 +73,14 @@ async fn prepare_or_submit(args: &[String]) -> Result<(), Error> {
         reader.read(&peer, start, end)
     )?;
     let slot = first_host_slot(&a, &b).ok_or("No common offered host slot")?;
+    if submit {
+        if let Ok(expected) = std::env::var("BOOKING_EXPECTED_START") {
+            let expected: DateTime<Utc> = expected.parse()?;
+            if slot.start != expected {
+                return Err("Approved slot changed; no booking submitted".into());
+            }
+        }
+    }
     // Only the visitor's contact is used for the host's booking.
     let visitor = attendee(&b.identity)?;
     if !submit {

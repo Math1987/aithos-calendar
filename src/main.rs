@@ -34,17 +34,38 @@ async fn main() -> Result<(), Error> {
             table,
         ));
         let registry = calendar::registry::Registry::new(&std::env::var("REGISTRY_ORIGIN")?)?;
-        calendar::app_with_reader(
+        let app = calendar::app_with_reader(
             &base_url,
             &catalog_url,
-            store,
+            store.clone(),
             Some(registry),
             std::env::var("CALENDAR_WEBSITE_URL")?,
             std::sync::Arc::new(calendar::booking_page::GoogleBookingPages::new()?),
             Some(std::sync::Arc::new(
                 calendar::availability::GoogleHttpReader::new()?,
             )),
-        )?
+        )?;
+        if let (Ok(table), Ok(secret_id)) = (
+            std::env::var("BOOKINGS_TABLE"),
+            std::env::var("ANAKIN_SECRET_ID"),
+        ) {
+            app.merge(calendar::booking_api::router(
+                calendar::booking_api::Bookings {
+                    agents: store,
+                    store: std::sync::Arc::new(calendar::booking_store::DynamoBookingStore::new(
+                        aws_sdk_dynamodb::Client::new(&config),
+                        table,
+                    )),
+                    reader: std::sync::Arc::new(calendar::availability::GoogleHttpReader::new()?),
+                    provider: std::sync::Arc::new(calendar::booking::SecretsBooking::new(
+                        aws_sdk_secretsmanager::Client::new(&config),
+                        secret_id,
+                    )),
+                },
+            ))
+        } else {
+            app
+        }
     };
     if let Some(address) = listen {
         let listener = tokio::net::TcpListener::bind(&address).await?;

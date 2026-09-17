@@ -24,8 +24,8 @@ missing details only when needed; this supersedes the fixed test attendee.
 | 3. Agent-to-agent exchange — deployed and verified | Alice calls Bob through real A2A HTTP; behavior still mocked | One traced Alice → Bob exchange; correct recipient configuration, bounded call flow, no recursive loop |
 | 4. Dynamic identities and registry — deployed and verified | Create agent/card, publish through Aithos and include card URL in catalog | Create two identities, discover and call both; verify URL deduplication, immutable reuse and retry-safe publication; retire hardcoded production fixtures |
 | 4 bis. Browser preview — deployed and verified | Home, shared test page, tutorial; spinner and mock success/error | Create/reuse two page agents in a browser, obtain the mock slot, reject identical/invalid links; see [browser test](browser-test.md) |
-| 5. Real availability in the browser — deployed; awaiting owner acceptance | Replaceable public-page HTTP reader, real A2A exchange, actual meeting metadata and deterministic host-slot selection | Controlled calendars: differing appointment durations, busy event, no common interval; use host duration and verify the full interval |
-| 6. Booking | Anakin adapter, durable operation, connect the existing UI to real booking | One real booking; verify attendee identity, invitation, both calendars, retries and ambiguous provider outcomes |
+| 5. Real availability in the browser — accepted | Replaceable public-page HTTP reader, real A2A exchange, actual meeting metadata and deterministic host-slot selection | Controlled calendars: differing appointment durations, busy event, no common interval; use host duration and verify the full interval |
+| 6. Booking — implementation underway | Anakin adapter, durable operation, connect the existing UI to real booking | One real booking; verify attendee identity, invitation, both calendars, retries and ambiguous provider outcomes |
 | Optional later: natural language | Bedrock only if conversational input becomes useful | Reuse deterministic scheduling and booking; no LLM required for the first usable version |
 
 ## Gate details
@@ -71,3 +71,5 @@ See [live browser test](live-browser-test.md). Gate 5 reads real schedules and u
 A2A in both directions. Gate 6 remains the next calendar-writing gate after owner
 acceptance: validate one Anakin result, durable submission/status, then enable
 booking in the browser. The usable version has no LLM or Bedrock dependency.
+
+Gate 6 implementation and remaining live confirmation prerequisite: [browser booking](booking-browser.md).

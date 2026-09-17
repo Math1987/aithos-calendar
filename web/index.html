@@ -74,7 +74,7 @@
 <div class="shell">
   <header>
     <a class="brand" href="/" aria-label="Calendar home"><svg aria-hidden="true" viewBox="0 0 28 28" fill="none"><rect x="3" y="5" width="22" height="20" rx="5" stroke="currentColor" stroke-width="1.7"/><path d="M3 12h22M9 2v6M19 2v6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="m10 18 3 3 6-6" stroke="#285c46" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>Calendar</a>
-    <span class="badge">Live availability · no bookings</span>
+    <span class="badge">Find a time. Book it.</span>
   </header>
   <main id="app" aria-busy="false"></main>
   <noscript><p>Enable JavaScript to create a link and run the calendar test.</p></noscript>
@@ -86,6 +86,7 @@ const WEBSITE = 'https://calendar.aithos.world';
 const app = document.querySelector('#app');
 const validId = id => /^[a-zA-Z0-9_-]{1,64}$/.test(id);
 let active = false;
+let bookingLocked = false;
 let host;
 let traceId;
 
@@ -100,6 +101,10 @@ const messages = {
   discovery_unavailable: 'We could not connect the two calendars. Please try again.',
   timeout: 'The comparison took too long. Please try again.',
   availability_unavailable: 'We could not read Google’s availability. Please try again shortly.',
+  booking_already_in_progress: 'A booking involving one of these calendars is already in progress or needs checking. Please check its status before trying again.',
+  booking_unavailable: 'Booking is temporarily unavailable. Please try later.',
+  slot_no_longer_available: 'That time is no longer available. Submit your link again to find another time.',
+  attendee_details_required: 'A few details are needed to book this time.',
   agent_upgrade_required: 'This link still uses the older test version. Its owner needs to contact us to update it.',
 };
 class UserError extends Error {}
@@ -131,12 +136,13 @@ async function request(path, signal, payload, a2a = false) {
     headers: payload === undefined ? {} : {'Content-Type': 'application/json', ...(a2a ? {'A2A-Version': '1.0'} : {})},
     body: payload === undefined ? undefined : JSON.stringify(payload),
   });
-  if (response.status === 404) throw new UserError('This shared link does not exist or is not ready yet. Check the link or try again shortly.');
+  if (response.status === 404) {const error = new UserError('This link does not exist or is not ready yet.'); error.httpStatus = 404; throw error;}
   let value;
   try { value = await response.json(); } catch (error) { if (error.name === 'AbortError') throw error; throw new UserError('The service returned an unexpected response. Please try again.'); }
   if (!response.ok) {
     if (response.status === 429) throw new UserError('Too many requests. Please wait a moment and try again.');
-    throw new UserError(messages[value.error] || 'We could not check availability. Check your link and try again.');
+    const error = new UserError(messages[value.error] || 'We could not complete the request. Please try again.');
+    error.payload = value; error.httpStatus = response.status; throw error;
   }
   return value;
 }
@@ -163,26 +169,31 @@ async function publishedAgent(url, signal) {
   }
   throw new UserError('Your page is saved, but its link is still being prepared. Please try the same link again in a moment.');
 }
-async function run(action) {
+async function run(action, timeoutMs = 45000) {
   if (active) return;
   active = true; traceId = undefined;
   const fieldset = document.querySelector('fieldset');
   if (fieldset) fieldset.disabled = true;
   app.setAttribute('aria-busy', 'true');
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 45000);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try { await action(controller.signal); }
   catch (error) {
-    outcome('We couldn’t check availability', error instanceof UserError ? error.message :
+    if (bookingLocked) {
+      outcome('Booking status needs checking', 'The request may still be processing. Check its status below; do not create another booking.');
+      const check = document.createElement('button'); check.textContent = 'Check booking status';
+      check.addEventListener('click', () => run(signal => resumeBooking(signal), 180000));
+      document.querySelector('#status').append(check);
+    } else outcome('We couldn’t check availability', error instanceof UserError ? error.message :
       error.name === 'AbortError' ? 'This is taking longer than expected. Try the same link again in a moment.' :
       'We could not reach the service. Check your connection and try again.');
   } finally {
     clearTimeout(timer); active = false; app.setAttribute('aria-busy', 'false');
-    if (fieldset) fieldset.disabled = false;
+    if (fieldset) fieldset.disabled = bookingLocked;
   }
 }
 const form = button => `<form id="booking-form"><fieldset><label for="booking-url">Your Google booking-page link</label><input id="booking-url" name="booking_page_url" type="url" placeholder="https://calendar.app.google/…" required maxlength="2048" autocomplete="url" spellcheck="false" aria-describedby="preview-note"><button class="submit" type="submit">${button}<span aria-hidden="true">→</span></button></fieldset></form><a class="help" href="/help/google-booking-page" target="_blank" rel="noopener">How do I get my booking-page link?</a><div id="status" class="status" role="status" aria-live="polite" aria-atomic="true" hidden></div>`;
-const note = '<p class="notice" id="preview-note"><strong>Availability preview.</strong> We read the times offered by both public booking pages for the next 30 days. No appointment will be booked.</p>';
+const note = '<p class="notice" id="preview-note">We find a time offered by both pages and book it on the host’s calendar, using the contact details on your page. Google sends the confirmation. Use a page that belongs to you.</p>';
 
 function home() {
   document.title = 'Calendar — Find a time together';
@@ -211,7 +222,20 @@ function home() {
 }
 async function booking(id) {
   document.title = 'Calendar — Find a shared time';
-  app.innerHTML = `<div class="eyebrow">A time for both of you</div><h1>Let’s find a<br>shared time.</h1><p class="intro">Add your Google booking-page link to find a time with this calendar.</p><section class="panel" aria-label="Find a shared time"><div class="meeting"><strong id="meeting-title">Loading meeting…</strong><span id="meeting-duration"></span></div>${form('Find a time')}</section>${note}`;
+  app.innerHTML = `<div class="eyebrow">A time for both of you</div><h1>Let’s find a<br>shared time.</h1><p class="intro">Add your Google booking-page link to find a time with this calendar.</p><section class="panel" aria-label="Find a shared time"><div class="meeting"><strong id="meeting-title">Loading meeting…</strong><span id="meeting-duration"></span></div>${form('Find and book a time')}</section>${note}`;
+  host = id;
+  let saved;
+  try { saved = localStorage.getItem(bookingKey()); } catch {
+    document.querySelector('fieldset').disabled = true;
+    outcome('Browser storage is required', 'Allow storage for this site so a booking can be resumed safely after a refresh.');
+    return;
+  }
+  if (saved) {
+    bookingLocked = true;
+    document.querySelector('#meeting-title').textContent = 'Your booking';
+    run(signal => resumeBooking(signal), 180000);
+    return;
+  }
   document.querySelector('fieldset').disabled = true;
   loading('Loading the shared calendar…');
   app.setAttribute('aria-busy', 'true');
@@ -265,12 +289,93 @@ async function booking(id) {
       if (result.status !== 'slot_found' || !Number.isFinite(start.getTime()) || !Number.isInteger(result.duration_minutes) || result.duration_minutes < 1 || result.duration_minutes > 1440 || end - start !== result.duration_minutes * 60000) {
         throw new UserError('We could not verify the proposed time. Please try again.');
       }
-      const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      const date = new Intl.DateTimeFormat(undefined, {weekday:'long', day:'numeric', month:'long', year:'numeric'}).format(start);
-      const time = new Intl.DateTimeFormat(undefined, {hour:'2-digit', minute:'2-digit', hour12:false});
-      outcome('A shared time was found', `${date}, ${time.format(start)}–${time.format(end)} (${zone}). No appointment has been booked.`, 'success');
-    });
+      await beginBooking({id:crypto.randomUUID(), host, peer:peer.id, slot:result.slot}, {}, signal);
+    }, 180000);
   });
+}
+function bookingKey() { return 'calendar-booking:' + host; }
+function slotLabel(slot) {
+  const start = new Date(slot.start), end = new Date(slot.end);
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const date = new Intl.DateTimeFormat(undefined, {weekday:'long', day:'numeric', month:'long', year:'numeric'}).format(start);
+  const time = new Intl.DateTimeFormat(undefined, {hour:'2-digit', minute:'2-digit', hour12:false});
+  return `${date}, ${time.format(start)}–${time.format(end)} (${zone})`;
+}
+async function watchBooking(operation, result, signal) {
+  bookingLocked = true;
+  for (let attempt = 0; attempt < 50; attempt++) {
+    if (!result || result.id !== operation.id || result.host !== operation.host || result.peer !== operation.peer ||
+        result.slot?.start !== operation.slot.start || result.slot?.end !== operation.slot.end) {
+      throw new UserError('We could not verify the booking status.');
+    }
+    if (result.status === 'booked' && result.reserved === true) {
+      outcome('Your meeting is booked', slotLabel(result.slot) + '. Check your email for Google’s confirmation and invitation.', 'success');
+      return;
+    }
+    if (result.status === 'unknown') {
+      outcome('We couldn’t confirm the booking', 'It may have been booked. Check the confirmation email and both calendars before trying again. Contact us if the outcome is unclear.');
+      return;
+    }
+    if (result.status === 'failed') {
+      outcome('Booking could not start', 'The booking provider rejected the request. No new booking was submitted by this operation.');
+      return;
+    }
+    if (!['pending','submitting'].includes(result.status) || result.reserved !== false) throw new UserError('Unexpected booking status.');
+    loading('Booking your meeting…');
+    await wait(Math.min(10000, Math.max(3000, result.retry_after_ms || 3000)), signal);
+    result = await request('/bookings/' + encodeURIComponent(operation.id), signal);
+  }
+  throw new UserError('Booking is still processing.');
+}
+async function resumeBooking(signal) {
+  const saved = localStorage.getItem(bookingKey());
+  if (!saved) throw new UserError('No saved booking was found.');
+  const operation = JSON.parse(saved);
+  if (operation.host !== host || !/^[0-9a-f-]{36}$/.test(operation.id)) throw new UserError('Invalid saved booking.');
+  loading('Checking your booking…');
+  let result;
+  try { result = await request('/bookings/' + encodeURIComponent(operation.id), signal); }
+  catch (error) {
+    if (error.httpStatus === 404) {
+      localStorage.removeItem(bookingKey()); bookingLocked = false;
+      outcome('Booking has not started', 'Reload this page and submit your link to try again.');
+      return;
+    }
+    throw error;
+  }
+  await watchBooking(operation, result, signal);
+}
+async function beginBooking(operation, attendee, signal) {
+  // Persist only the resume reference, never names or email.
+  localStorage.setItem(bookingKey(), JSON.stringify(operation));
+  bookingLocked = true;
+  loading('Booking your meeting…');
+  let result;
+  try { result = await request('/bookings', signal, {...operation, attendee}); }
+  catch (error) {
+    if (error.payload?.error === 'attendee_details_required') {
+      bookingLocked = false; localStorage.removeItem(bookingKey());
+      outcome('A few details are needed', 'Add the details missing from your booking page to reserve ' + slotLabel(operation.slot) + '.', '');
+      const form = document.createElement('form'); const fields = error.payload.missing_fields;
+      const labels = {first_name:'First name',last_name:'Last name',email:'Email'};
+      if (!Array.isArray(fields) || fields.length < 1 || fields.some(key => !labels[key])) throw new UserError('Unexpected attendee form.');
+      for (const key of fields) {
+        const label = document.createElement('label'); label.textContent = labels[key];
+        const input = document.createElement('input'); input.name = key; input.type = key === 'email' ? 'email' : 'text'; input.required = true; input.maxLength = 254;
+        label.append(input); form.append(label);
+      }
+      const button = document.createElement('button'); button.textContent = 'Book this time'; button.type = 'submit'; form.append(button);
+      form.addEventListener('submit', event => {event.preventDefault(); const supplied = {...attendee, ...Object.fromEntries(new FormData(form))}; run(nextSignal => beginBooking(operation, supplied, nextSignal),180000);});
+      document.querySelector('#status').append(form);
+      return;
+    }
+    // Known validation errors occur before the durable provider submission.
+    if (['slot_no_longer_available','invalid_booking_request','invalid_booking_slot','unknown_live_agent','availability_unavailable','timeout','booking_unavailable'].includes(error.payload?.error)) {
+      localStorage.removeItem(bookingKey()); bookingLocked = false;
+    }
+    throw error;
+  }
+  await watchBooking(operation, result, signal);
 }
 function tutorial() {
   document.title = 'Calendar — Get a Google booking link';

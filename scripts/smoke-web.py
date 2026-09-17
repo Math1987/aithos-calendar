@@ -7,9 +7,9 @@ api = 'https://api.calendar.aithos.world'
 for path in ['/', '/book/unknown-agent', '/help/google-booking-page']:
     with urllib.request.urlopen(site + path, timeout=20) as response:
         html = response.read().decode()
-        assert response.status == 200 and '<script type="module">' in html and 'Live availability' in html
+        assert response.status == 200 and '<script type="module">' in html and 'Find a time. Book it.' in html
     print('PASS direct web route', path)
-for path, headers in [('/agents', 'content-type'), ('/a2a', 'content-type,a2a-version')]:
+for path, headers in [('/bookings', 'content-type'), ('/agents', 'content-type'), ('/a2a', 'content-type,a2a-version')]:
     request = urllib.request.Request(api + path, method='OPTIONS', headers={
         'Origin': site, 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': headers,
     })
