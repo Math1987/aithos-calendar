@@ -119,5 +119,25 @@ protection.
 - Isolated browser checks verified the signed-in agent page, sign-out, cancelled
   sign-in message and home-page coexistence with public booking links.
 - The OAuth client secret is absent from tracked/unignored files.
-- Deployment is pending renewal of operator AWS credentials: STS returned
-  `ExpiredToken`. No AWS changes or production deployment were made for this gate.
+- Initial deployment was blocked by expired operator credentials. The user
+  renewed them; the deployment below supersedes that blocker.
+
+
+## Production validation — 2026-09-17
+
+- Refreshed AWS credentials resolved to account `128066560720`; JSON loading and
+  the preserved Google configuration passed, with `.env` remaining `0600`.
+- Bootstrap applied exactly three additions, with no changes or deletions:
+  OAuth secret metadata and the two scoped IAM policies.
+- The Google client secret was stored and read-back verified in Secrets Manager.
+  IAM simulation allowed Lambda to read that exact secret and Get/Put/Delete
+  private auth-table records. No secret values were printed.
+- Commit `6500ec547977102876e0bb6792b4b2a523b7bf04` deployed successfully in
+  [GitHub Actions run 35198612239](https://github.com/Math1987/aithos-calendar/actions/runs/35198612239)
+  (6 minutes 40 seconds). Build/tests, Terraform, health, existing A2A, browser
+  routes/CORS and OAuth smoke checks all passed.
+- The deployed `/account` page showed Continue with Google. Clicking it reached
+  Google's account chooser for our configured client and callback without an
+  OAuth configuration error. No account was selected and no consent was granted.
+- The manual acceptance test remains: sign in, verify agent publication, sign
+  out/in and verify identity reuse, then repeat with the second test account.

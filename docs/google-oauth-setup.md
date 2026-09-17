@@ -3,8 +3,9 @@
 ## Configuration status
 
 The following Google Cloud settings were saved and verified in the console on
-2026-09-17. The first server-side sign-in gate is implemented locally. Deployment and a real
-Google login round trip remain to be verified.
+2026-09-17. The first server-side sign-in gate was deployed on 2026-09-17. Production
+checks and the Google account chooser are verified; a real login round trip
+remains a manual acceptance test.
 
 | Item | Value |
 | --- | --- |
@@ -65,7 +66,8 @@ the existing AWS Secrets Manager pattern: store the client secret outside
 Terraform state under `calendar/production/google-oauth-client` and pass only
 `GOOGLE_OAUTH_CLIENT_SECRET_ID` to the Lambda. Production secret metadata and IAM permissions are defined in `infra/bootstrap/auth.tf`;
 the private DynamoDB table and runtime wiring are defined in `infra/production`.
-The actual secret value must be uploaded separately before deployment.
+The actual secret value was uploaded separately and read-back verified on
+2026-09-17, without entering Terraform state or command output.
 
 Implement a server-side authorization-code flow with state validation, PKCE,
 OIDC token validation, a secure application session, offline access when needed,
