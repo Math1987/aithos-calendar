@@ -156,7 +156,13 @@ labButton.onclick = async () => {
   labButton.disabled = true; labButton.textContent = 'Running…';
   try {
     const response = await fetch(`${API}/lab/report?policy=guaranteed`, { cache: 'no-store' });
-    const report = await response.json();
+    const report = await response.json().catch(() => ({}));
+    if (!response.ok || !report.trace_id || !validTrace(report.trace_id)) {
+      errorBox.textContent = report.error === 'no_published_agent'
+        ? 'Lab: no agent is published yet; the scenarios are derived from real agents, so sign in first.'
+        : `Lab unavailable: HTTP ${response.status}${report.error ? ` (${report.error})` : ''}`;
+      return;
+    }
     traceInput.value = report.trace_id; traceInput.dispatchEvent(new Event('input'));
     errorBox.textContent = report.passed ? 'Lab: every scenario behaved as documented.' : 'Lab: at least one scenario diverged; see the report.';
   } catch (error) { errorBox.textContent = `Lab unavailable: ${error.message}`; }

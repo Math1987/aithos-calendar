@@ -504,6 +504,10 @@ impl PublicStore for DynamoPublicStore {
             }
         }
         events.retain(|e| query.matches(e));
+        // Pages arrive newest first (by `sk`, which carries the flush
+        // sequence): reversing restores the emission order, and the stable
+        // sort keeps it for events sharing a millisecond.
+        events.reverse();
         events.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
         events
     }
