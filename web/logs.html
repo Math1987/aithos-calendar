@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#f7f7f2">
   <meta name="referrer" content="no-referrer">
-  <meta name="description" content="Live, allow-listed log feed of the Calendar A2A agents: trust verification, AI Catalog and A2A SDK events.">
-  <title>Calendar — Live logs</title>
+  <meta name="description" content="Live, allow-listed log feed of the A2A Calendar POC agents: trust verification, AI Catalog and A2A SDK events.">
+  <title>A2A Calendar POC — Live logs</title>
   <link rel="ai-catalog" type="application/ai-catalog+json" href="https://api.calendar.aithos.world/.well-known/ai-catalog.json">
   <style>
     :root { color-scheme: light; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #222b28; background: #f7f7f2; font-synthesis: none; }
@@ -59,7 +59,7 @@
 <body>
 <div class="shell">
   <header>
-    <a class="brand" href="/" aria-label="Calendar home"><svg aria-hidden="true" viewBox="0 0 28 28" fill="none"><rect x="3" y="5" width="22" height="20" rx="5" stroke="currentColor" stroke-width="1.7"/><path d="M3 12h22M9 2v6M19 2v6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="m10 18 3 3 6-6" stroke="#285c46" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>Calendar</a>
+    <a class="brand" href="/" aria-label="A2A Calendar POC home"><svg aria-hidden="true" viewBox="0 0 28 28" fill="none"><rect x="3" y="5" width="22" height="20" rx="5" stroke="currentColor" stroke-width="1.7"/><path d="M3 12h22M9 2v6M19 2v6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="m10 18 3 3 6-6" stroke="#285c46" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>A2A Calendar POC</a>
     <a class="badge" href="/">Find a time together</a>
   </header>
   <main>
@@ -87,7 +87,7 @@
       <strong>Reading the trust chain.</strong> One outbound call logs, in order, <code>catalog_fetched</code> → <code>catalog_signature_verified</code> → <code>manifest_verified</code> (or <code>manifest_unverified</code> under the integrity policy) → <code>card_digest_verified</code> → <code>card_signature_verified</code> → <code>peer_verified</code>, then the A2A SDK request and response. A refusal shows the failing step and its code (for example <code>card_digest_mismatch</code>, <code>untrusted_guarantor</code>, <code>caller_key_mismatch</code>). "Run the lab" verifies every scenario catalog once and shows its trace here.
     </section>
   </main>
-  <footer><span>Retention is short by design: this is a live tail.</span><a href="/">Calendar</a></footer>
+  <footer><span>Retention is short by design: this is a live tail.</span><span><a href="/">Home</a> · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></span></footer>
 </div>
 <script type="module">
 const API = 'https://api.calendar.aithos.world';

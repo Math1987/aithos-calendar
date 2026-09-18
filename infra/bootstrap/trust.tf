@@ -46,8 +46,8 @@ resource "aws_iam_policy" "deploy_trust" {
       Resource = ["arn:aws:dynamodb:${local.region}:${local.account}:table/${local.name}-public-logs", "arn:aws:dynamodb:${local.region}:${local.account}:table/${local.name}-public-logs/index/*"]
     },
     { Effect = "Allow", Action = ["kms:DescribeKey", "kms:GetPublicKey", "kms:ListAliases"], Resource = [aws_kms_key.operator.arn, aws_kms_key.guarantor.arn] },
-    # The website now ships two pages and a response-headers policy (Link: rel="ai-catalog").
-    { Effect = "Allow", Action = ["s3:GetObject*", "s3:PutObject*", "s3:DeleteObject*"], Resource = "arn:aws:s3:::${local.website_bucket}/logs" },
+    # The website ships /logs, /privacy and /terms besides index.html, and a response-headers policy (Link: rel="ai-catalog").
+    { Effect = "Allow", Action = ["s3:GetObject*", "s3:PutObject*", "s3:DeleteObject*"], Resource = ["arn:aws:s3:::${local.website_bucket}/logs", "arn:aws:s3:::${local.website_bucket}/privacy", "arn:aws:s3:::${local.website_bucket}/terms"] },
     { Effect = "Allow", Action = ["cloudfront:CreateResponseHeadersPolicy", "cloudfront:GetResponseHeadersPolicy", "cloudfront:UpdateResponseHeadersPolicy", "cloudfront:DeleteResponseHeadersPolicy", "cloudfront:ListResponseHeadersPolicies"], Resource = "*" }
   ] })
 }

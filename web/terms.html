@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f7f2">
+  <meta name="referrer" content="no-referrer">
+  <meta name="description" content="Terms of use of the A2A Calendar POC, a proof-of-concept service that lets calendar agents book a meeting for two people.">
+  <title>A2A Calendar POC — Terms of use</title>
+  <link rel="ai-catalog" type="application/ai-catalog+json" href="https://api.calendar.aithos.world/.well-known/ai-catalog.json">
+  <style>
+    :root { color-scheme: light; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #222b28; background: #f7f7f2; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 280px; }
+    a { color: #285c46; text-underline-offset: 4px; }
+    .shell { max-width: 1024px; margin: auto; padding: 0 32px; }
+    header { display: flex; align-items: center; justify-content: space-between; padding: 30px 0; border-bottom: 1px solid #dddfd6; }
+    .brand { display: inline-flex; align-items: center; gap: 10px; color: #222b28; font-weight: 650; font-size: 19px; text-decoration: none; letter-spacing: -.5px; }
+    .brand svg { width: 27px; height: 27px; }
+    .badge { font-size: 12px; padding: 6px 10px; border: 1px solid #dadfd3; border-radius: 99px; color: #5c655d; text-decoration: none; }
+    main { max-width: 680px; margin: 64px auto 72px; line-height: 1.65; font-size: 15px; }
+    .eyebrow { color: #5d705e; font-size: 11px; font-weight: 700; letter-spacing: 1.7px; text-transform: uppercase; margin-bottom: 18px; }
+    h1 { font-family: Georgia, "Times New Roman", serif; font-weight: 400; font-size: clamp(34px, 5vw, 46px); letter-spacing: -1.5px; line-height: 1.1; margin: 0 0 12px; }
+    h2 { font-size: 19px; margin: 40px 0 10px; letter-spacing: -.3px; }
+    p, li { color: #3a423c; }
+    .meta { color: #6a7068; font-size: 13px; margin: 0 0 28px; }
+    code { font-size: 13px; background: #eef1ea; padding: 1px 5px; border-radius: 4px; }
+    footer { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 26px 0 40px; border-top: 1px solid #dddfd6; color: #7a8279; font-size: 13px; }
+    footer a { color: #5c655d; }
+  </style>
+</head>
+<body>
+<div class="shell">
+  <header>
+    <a class="brand" href="/" aria-label="A2A Calendar POC home"><svg aria-hidden="true" viewBox="0 0 28 28" fill="none"><rect x="3" y="5" width="22" height="20" rx="5" stroke="currentColor" stroke-width="1.7"/><path d="M3 12h22M9 2v6M19 2v6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="m10 18 3 3 6-6" stroke="#285c46" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>A2A Calendar POC</a>
+    <a class="badge" href="/account">Your account</a>
+  </header>
+  <main>
+    <div class="eyebrow">Terms of use</div>
+    <h1>A proof of concept, offered as it is</h1>
+    <p class="meta">Effective 18 September 2026 · <a href="https://calendar.aithos.world/">calendar.aithos.world</a></p>
+
+    <h2>1. What the service is</h2>
+    <p>The A2A Calendar POC ("the service") is a proof of concept that demonstrates how software agents can discover and trust each other (using the A2A protocol and the AI Catalog format) and, on that basis, book a meeting between two people in their Google Calendars. It is operated by its developer, Mathieu Colla (<a href="mailto:mathieu@aithos.fr">mathieu@aithos.fr</a>), free of charge, for demonstration and evaluation. It is not a commercial product and may be changed, interrupted or withdrawn at any time.</p>
+
+    <h2>2. Using the service</h2>
+    <ul>
+      <li>You need a Google account to get an agent. By connecting Google Calendar you allow your agent to read your availability, your calendar's time zone and your meeting history, and to create or accept meetings on your primary calendar, as described in the <a href="/privacy">privacy policy</a>.</li>
+      <li>Your agent acts on your behalf automatically: when you give it another person's agent link, or another person gives their agent yours, the two agents pick a time and create a meeting without asking you again. Only share your agent's link with people you want to meet.</li>
+      <li>Meetings created by the service are ordinary Google Calendar events that you and the other person own. Changing or cancelling them is done in Google Calendar; the service never deletes events.</li>
+      <li>You may register only public Google appointment-schedule links that you are entitled to share. When you book an appointment through such a link, you provide your own name and e-mail address for that booking.</li>
+      <li>Do not use the service to send unwanted invitations, to probe someone's availability, to overload it or to interfere with other people's agents. Requests are rate-limited per account, per host and per network address, and abusive accounts can be removed.</li>
+    </ul>
+
+    <h2>3. What is public</h2>
+    <p>Agent identifiers, signed agent descriptions, verification keys and a 24-hour technical log feed are published so that other agents and people can verify the service (see the <a href="/privacy">privacy policy</a>, section 4). Names and e-mail addresses are not published.</p>
+
+    <h2>4. No warranty</h2>
+    <p>The service is provided "as is", without any warranty of availability, accuracy or fitness for a purpose. A booked time can be wrong, a meeting can fail to be created, and the service can be unavailable. Check your calendar before relying on a meeting. To the extent permitted by law, the operator is not liable for any loss arising from the use of the service.</p>
+
+    <h2>5. Your account</h2>
+    <p>You can disconnect Google Calendar, sign out, or delete your account and agent at any time from your account page; deletion is immediate and cannot be undone. The operator may remove an account or an agent that breaks these terms or that threatens the service, and may end the service altogether.</p>
+
+    <h2>6. Changes and contact</h2>
+    <p>Changes to these terms are published on this page with a new effective date. Questions: <a href="mailto:mathieu@aithos.fr">mathieu@aithos.fr</a>. The source code is public at <a href="https://github.com/Math1987/aithos-calendar" rel="noopener noreferrer">github.com/Math1987/aithos-calendar</a>.</p>
+  </main>
+  <footer><span>A2A Calendar POC — a proof of concept.</span><span><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a> · <a href="/logs">Live logs</a></span></footer>
+</div>
+</body>
+</html>

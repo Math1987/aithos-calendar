@@ -1,109 +1,95 @@
-# Google OAuth setup for Aithos Calendar
+# Google OAuth setup for the A2A Calendar POC
 
-## Configuration status
+## Status
 
-The following Google Cloud settings were saved and verified in the console on
-2026-09-17. The first server-side sign-in gate was deployed on 2026-09-17. Production
-checks and the Google account chooser are verified; a real login round trip
-remains a manual acceptance test.
-
-| Item | Value |
-| --- | --- |
-| Google Cloud project name | Aithos Calendar |
-| Project ID | `aithos-calendar` |
-| Project number | `235708078636` |
-| Organization | `aithos.fr` (`1034671875644`) |
-| Google Calendar API | Enabled (`calendar-json.googleapis.com`) |
-| OAuth application name | Aithos Calendar |
-| Google Auth Platform audience | External |
-| Publishing status | Testing |
-| Support and developer contact | `mathieu@aithos.fr` |
-| Test users | `mathieu@aithos.fr`, `mathieucolla@gmail.com` |
-| Application home page | `https://calendar.aithos.world/` |
-| Authorized domain | `aithos.world` |
-| Consent-screen sign-in scopes | `openid`, `email`, `profile` |
-| OAuth client name and type | Aithos Calendar Web; Web application |
-| OAuth client ID | `235708078636-686f8i71em5mmsn1b29prrfv4tl8gpt3.apps.googleusercontent.com` |
-| Authorized redirect URI | `https://api.calendar.aithos.world/auth/google/callback` |
-| Authorized JavaScript origins | None configured |
-
-The callback URI matches the backend route implemented in the first sign-in gate.
-A Google client alone does not make login work; the backend must also be deployed. No localhost or wildcard redirect is configured.
-
-## Permissions
-
-The consent screen declares `openid email profile` for the initial sign-in
-gate. Request these scopes during login. Validate the Google
-ID token and use its stable OIDC `sub` claim as the external identity key. Map
-that key to an internal user and one persistent A2A agent. Do not infer ownership
-of existing anonymous booking-page agents from a matching email or calendar URL.
-
-The following Calendar scopes have **not** been added to the consent screen or
-requested from users yet. Add and request them when the corresponding Calendar
-flow is implemented:
-
-| Purpose | Scope | Reason |
+| Item | Value | State |
 | --- | --- | --- |
-| Read availability | `https://www.googleapis.com/auth/calendar.freebusy` | Accepted by `freeBusy.query`; returns busy intervals without event details. |
-| Create an organizer event on the user's primary calendar | `https://www.googleapis.com/auth/calendar.events.owned` | Accepted by `events.insert` and applies to calendars the user owns. |
-| Read the primary calendar's time zone | `https://www.googleapis.com/auth/calendar.calendarlist.readonly` | `calendarList.get("primary")` returns a calendar-list entry with `timeZone`. |
+| Google Cloud project display name | `A2A Calendar POC` (was "Aithos Calendar") | rename in the console, see the checklist below |
+| Project ID / number | `aithos-calendar` / `235708078636` (the ID cannot change) | fixed |
+| Organization | `aithos.fr` (`1034671875644`) | fixed |
+| Google Calendar API | Enabled (`calendar-json.googleapis.com`) | done |
+| OAuth application name (consent screen) | `A2A Calendar POC` | rename in the console |
+| Google Auth Platform audience | External | done |
+| Publishing status | **Testing → In production** (publish without waiting for verification; verification filed in parallel) | to do, after the code in this document is deployed |
+| Support and developer contact | `mathieu@aithos.fr` | done |
+| Application home page | `https://calendar.aithos.world/` | done |
+| Privacy policy / terms of service | `https://calendar.aithos.world/privacy`, `https://calendar.aithos.world/terms` | add in the console |
+| Authorized domain | `aithos.world` | done; domain verification in Search Console still to do |
+| Consent-screen scopes (Data access) | `openid`, `email`, `profile`, `…/auth/calendar.freebusy`, `…/auth/calendar.events.owned`, `…/auth/calendar.calendarlist.readonly` | the three Calendar scopes must be added in the console |
+| OAuth client | `A2A Calendar POC Web` (rename), Web application, ID `235708078636-686f8i71em5mmsn1b29prrfv4tl8gpt3.apps.googleusercontent.com` | ID unchanged |
+| Authorized redirect URI | `https://api.calendar.aithos.world/auth/google/callback` | done |
+| Authorized JavaScript origins | none | done |
 
-The last scope is necessary only if the product must read the calendar's configured
-time zone. `freeBusy.query` can instead return times in UTC or in a time zone
-supplied by the application, but it does not return the calendar's configured
-time zone. These scopes do not need to be requested for the initial login and
-agent-mapping gate. Do not use the broader `calendar` or `calendar.readonly`
-scopes for this flow.
+Access in the backend is configured, not hard-coded (`src/auth.rs::Access`):
+
+| `GOOGLE_OAUTH_ACCESS` | Effect |
+| --- | --- |
+| `public` | any Google account may sign in (production, `infra/production/api.tf`) |
+| `allowlist` or unset | only the addresses in `GOOGLE_OAUTH_TEST_USERS` (the pilot mode; the safe default when the variable is missing) |
+
+The allow-list is enforced server-side because Google exempts basic sign-in from its Testing restrictions.
+
+## Scopes and what each one does
+
+The consent screen must declare every scope the code requests
+(`src/google_calendar.rs::SCOPES`). Sign-in requests only
+`openid email profile`; the Calendar scopes are requested in a second,
+explicit consent (`/auth/google/start?calendar=true`, offline access).
+`docs/google-verification.md` has the per-scope justification written for
+Google's reviewers; in short:
+
+| Scope | Feature | Code |
+| --- | --- | --- |
+| `calendar.freebusy` | free/busy of the primary calendar in a window ≤ 30 days, reduced to weekday 09:00–18:00 slots | `GoogleCalendar::availability` |
+| `calendar.calendarlist.readonly` | the primary calendar's time zone | `GoogleCalendar::availability` (`calendarList/primary`) |
+| `calendar.events.owned` | past meetings with the peer (habits), the "Host / Guest" event, the guest's acceptance | `GoogleCalendar::history`, `insert`, `accept` |
+
+Refresh tokens are encrypted with the KMS key `alias/calendar-production-google-tokens`
+(encryption context bound to the account) and stored in the private auth table;
+access tokens are minted per operation and never stored. In production
+(published app) refresh tokens no longer expire after seven days as they do in Testing.
+
+## Verification
+
+The three Calendar scopes are sensitive, so a published app needs Google's
+verification. Until it is granted the app works with the "unverified app"
+screen and a cap of 100 new users. The dossier, the demo-video script and
+the prerequisites checklist are in `docs/google-verification.md`; the
+requirements met by the code are: a home page that describes the app and
+its use of Calendar data with visible links to `/privacy` and `/terms`
+(`web/index.html`); a privacy policy stating the Google API Services User
+Data Policy / Limited Use compliance, retention and deletion
+(`web/privacy.html`); account deletion that revokes the grant
+(`DELETE /account`, `src/auth.rs`); no "Aithos" branding in the app.
 
 ## Backend configuration and secret handling
 
-The existing repository-root `.env` contains `GOOGLE_OAUTH_CLIENT_ID`,
-`GOOGLE_OAUTH_CLIENT_SECRET`, and `GOOGLE_OAUTH_REDIRECT_URI`. Existing values
-were preserved. `.env` is ignored by Git, owned by the current user, and has
-mode `0600`. The downloaded client JSON was removed after the values were
-stored. Never commit the secret or a client JSON file. For production, follow
-the existing AWS Secrets Manager pattern: store the client secret outside
-Terraform state under `calendar/production/google-oauth-client` and pass only
-`GOOGLE_OAUTH_CLIENT_SECRET_ID` to the Lambda. Production secret metadata and IAM permissions are defined in `infra/bootstrap/auth.tf`;
-the private DynamoDB table and runtime wiring are defined in `infra/production`.
-The actual secret value was uploaded separately and read-back verified on
-2026-09-17, without entering Terraform state or command output.
+The repository-root `.env` holds `GOOGLE_OAUTH_CLIENT_ID`,
+`GOOGLE_OAUTH_CLIENT_SECRET` and `GOOGLE_OAUTH_REDIRECT_URI` for local use;
+it is ignored by Git and never printed. Production reads the client secret
+from AWS Secrets Manager (`calendar/production/google-oauth-client`,
+metadata in `infra/bootstrap/auth.tf`, value uploaded out of band) through
+`GOOGLE_OAUTH_CLIENT_SECRET_ID`; the private DynamoDB table and the
+runtime variables are in `infra/production`. Never commit the secret or a
+client JSON file.
 
-Implement a server-side authorization-code flow with state validation, PKCE,
-OIDC token validation, a secure application session, offline access when needed,
-and protected storage and rotation of per-user refresh tokens. Keep tokens out
-of AgentCards and the catalog.
-
-## Testing and release
-
-The app explicitly limits this pilot to the two configured test accounts using
-`GOOGLE_OAUTH_TEST_USERS`. Google can exempt basic sign-in-only requests from its
-Testing restrictions; the backend therefore enforces the pilot allowlist itself. For
-Calendar scopes, refresh tokens issued in Testing expire after seven days;
-Google exempts grants limited to basic sign-in scopes. Handle reconnection when
-refresh tokens expire or are revoked. Before public release, complete the
-required OAuth app information, domain verification where requested, scope
-review or verification, privacy policy, and publishing transition. Do not use
-placeholder legal URLs.
-
-The Google-side configuration was verified by the setup agent. Local credential
-presence, the client ID, callback URI, file permissions and Git exclusion were
-verified independently. A real login round trip remains a manual acceptance
-check after backend deployment. See [the sign-in gate](archive/google-sign-in.md).
+The flow is a server-side authorization-code flow with state, PKCE, nonce
+and ID-token validation (`src/google_identity.rs`), a one-shot
+browser-bound login row and an opaque session cookie (`src/auth.rs`).
+Tokens never appear in Agent Cards, the catalog or the logs.
 
 ## Google references
 
 - [Configure the OAuth consent screen](https://developers.google.com/workspace/guides/configure-oauth-consent)
-- [OAuth 2.0 for web-server applications](https://developers.google.com/identity/protocols/oauth2/web-server)
+- [OAuth app verification](https://support.google.com/cloud/answer/13463073)
+- [Unverified apps and the 100-user cap](https://support.google.com/cloud/answer/7454865)
+- [Google API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy)
 - [Calendar API scopes](https://developers.google.com/workspace/calendar/api/auth)
-- [CalendarList.get](https://developers.google.com/workspace/calendar/api/v3/reference/calendarList/get)
-- [Freebusy.query](https://developers.google.com/workspace/calendar/api/v3/reference/freebusy/query)
-- [Events.insert](https://developers.google.com/workspace/calendar/api/v3/reference/events/insert)
 - [Refresh-token expiration in Testing](https://developers.google.com/identity/protocols/oauth2#expiration)
 
 ## Connected Calendar implementation
 
-The backend now requests the three Calendar permissions incrementally through
-`/auth/google/start?calendar=true` after sign-in. Each user must grant them.
-The [connected booking guide](google-calendar-booking.md) is the current manual
-test and describes encrypted token storage, expiration and reconnection.
+The backend requests the three Calendar permissions incrementally through
+`/auth/google/start?calendar=true` after sign-in. The
+[connected booking guide](google-calendar-booking.md) is the manual test
+and describes encrypted token storage, expiration and reconnection.

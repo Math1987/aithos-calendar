@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f7f2">
+  <meta name="referrer" content="no-referrer">
+  <meta name="description" content="What the A2A Calendar POC reads from Google Calendar, what it stores, for how long, and how to delete it.">
+  <title>A2A Calendar POC — Privacy policy</title>
+  <link rel="ai-catalog" type="application/ai-catalog+json" href="https://api.calendar.aithos.world/.well-known/ai-catalog.json">
+  <style>
+    :root { color-scheme: light; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #222b28; background: #f7f7f2; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 280px; }
+    a { color: #285c46; text-underline-offset: 4px; }
+    .shell { max-width: 1024px; margin: auto; padding: 0 32px; }
+    header { display: flex; align-items: center; justify-content: space-between; padding: 30px 0; border-bottom: 1px solid #dddfd6; }
+    .brand { display: inline-flex; align-items: center; gap: 10px; color: #222b28; font-weight: 650; font-size: 19px; text-decoration: none; letter-spacing: -.5px; }
+    .brand svg { width: 27px; height: 27px; }
+    .badge { font-size: 12px; padding: 6px 10px; border: 1px solid #dadfd3; border-radius: 99px; color: #5c655d; text-decoration: none; }
+    main { max-width: 680px; margin: 64px auto 72px; line-height: 1.65; font-size: 15px; }
+    .eyebrow { color: #5d705e; font-size: 11px; font-weight: 700; letter-spacing: 1.7px; text-transform: uppercase; margin-bottom: 18px; }
+    h1 { font-family: Georgia, "Times New Roman", serif; font-weight: 400; font-size: clamp(34px, 5vw, 46px); letter-spacing: -1.5px; line-height: 1.1; margin: 0 0 12px; }
+    h2 { font-size: 19px; margin: 40px 0 10px; letter-spacing: -.3px; }
+    h3 { font-size: 15px; margin: 22px 0 6px; }
+    p, li { color: #3a423c; }
+    .meta { color: #6a7068; font-size: 13px; margin: 0 0 28px; }
+    table { border-collapse: collapse; width: 100%; font-size: 14px; margin: 12px 0; }
+    th, td { text-align: left; vertical-align: top; padding: 9px 10px; border-bottom: 1px solid #e3e6dd; }
+    th { color: #5c655d; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .8px; }
+    code { font-size: 13px; background: #eef1ea; padding: 1px 5px; border-radius: 4px; }
+    footer { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 26px 0 40px; border-top: 1px solid #dddfd6; color: #7a8279; font-size: 13px; }
+    footer a { color: #5c655d; }
+  </style>
+</head>
+<body>
+<div class="shell">
+  <header>
+    <a class="brand" href="/" aria-label="A2A Calendar POC home"><svg aria-hidden="true" viewBox="0 0 28 28" fill="none"><rect x="3" y="5" width="22" height="20" rx="5" stroke="currentColor" stroke-width="1.7"/><path d="M3 12h22M9 2v6M19 2v6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="m10 18 3 3 6-6" stroke="#285c46" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>A2A Calendar POC</a>
+    <a class="badge" href="/account">Your account</a>
+  </header>
+  <main>
+    <div class="eyebrow">Privacy policy</div>
+    <h1>What this service does with your data</h1>
+    <p class="meta">Effective 18 September 2026 · applies to <a href="https://calendar.aithos.world/">calendar.aithos.world</a> and <code>api.calendar.aithos.world</code></p>
+
+    <p>The A2A Calendar POC is a proof of concept. It gives your Google account a small software agent that finds a meeting time with another person's agent and books it in both Google Calendars. This page states, from the running code, what the service reads, what it stores, for how long, who else processes it, and how you delete it.</p>
+
+    <h2>1. Who operates the service and how to reach them</h2>
+    <p>The service is operated by its developer, Mathieu Colla. Questions and requests about your data: <a href="mailto:mathieu@aithos.fr">mathieu@aithos.fr</a>.</p>
+
+    <h2>2. Signing in with Google</h2>
+    <p>Signing in uses Google's OpenID Connect flow with the <code>openid</code>, <code>email</code> and <code>profile</code> scopes. The service keeps:</p>
+    <ul>
+      <li>a random account identifier it generates for you (this identifier is also your agent's public identifier);</li>
+      <li>your verified Google e-mail address;</li>
+      <li>your Google display name, refreshed at every sign-in, used only as the title of the meetings your agent books ("Host name / Guest name");</li>
+      <li>a SHA-256 hash of your Google subject identifier, used to find your account again. The identifier itself is not stored.</li>
+    </ul>
+    <p>Your browser receives one session cookie (<code>__Host-calendar-session</code>): a random value valid for 12 hours, marked Secure, HttpOnly and SameSite. There are no analytics or advertising cookies and no third-party scripts.</p>
+
+    <h2>3. Connecting Google Calendar</h2>
+    <p>Connecting your calendar is a separate, explicit consent. The service asks for three Google Calendar scopes and uses each for one purpose:</p>
+    <table>
+      <tr><th>Scope</th><th>Used for</th><th>What is read or written</th></tr>
+      <tr><td><code>calendar.freebusy</code></td><td>Finding a time that is free for both people</td><td>Busy intervals of your primary calendar inside a window of at most 30 days. The service turns them into free weekday slots between 09:00 and 18:00 and keeps nothing else.</td></tr>
+      <tr><td><code>calendar.calendarlist.readonly</code></td><td>Interpreting times in your time zone</td><td>The time zone of your primary calendar. No other calendar-list data is used.</td></tr>
+      <tr><td><code>calendar.events.owned</code></td><td>Learning your meeting habits and creating the meeting</td><td>See "Meeting history" and "The meeting your agent creates" below.</td></tr>
+    </table>
+    <p>The refresh token Google issues is encrypted with a customer-managed AWS KMS key before it is stored, bound to your account identifier, and decrypted only to obtain a short-lived access token for one operation. Access tokens are never stored. The connected e-mail address is stored with the encrypted token. Google may show the app as unverified until Google has completed its review.</p>
+
+    <h3>Meeting history</h3>
+    <p>When your agent arranges a meeting with a given person, it reads events of your primary calendar from nine months in the past to three months ahead, keeps only events you organised or accepted, and retains for each of them: the title (first 120 characters), the description (first 180 characters), the start and end times, whether you organised it, whether that person attended, and the identifier of a recurring series. At most 60 of these observations are sent, once per person per day, to an AI model that returns only a preferred weekday, a preferred hour, a duration and whether lunchtime is acceptable. The model's instructions treat calendar text as data, never as instructions, and forbid it from returning descriptions or identities. Up to 20 of the observations are cached for 24 hours as "previous meetings with this person" and shown to you on your account page. The model runs on Amazon Bedrock in the AWS Paris region (<code>eu-west-3</code>) through an EU inference profile; it is only used within a fixed monthly budget, otherwise deterministic defaults apply.</p>
+
+    <h3>The meeting your agent creates</h3>
+    <p>When a time is agreed, the host's agent creates one event on the host's primary calendar with: the title "Host name / Guest name", the start and end time, the guest's Google e-mail address as attendee, and a private property <code>a2aBookingId</code> that lets the service recognise the event later. Google sends the usual invitation e-mails to both people. The guest's agent then accepts the invitation on the guest's behalf. Both people therefore see each other's Google e-mail address on the meeting. The service never deletes or moves events, never creates calendars, and never changes sharing settings.</p>
+
+    <h2>4. What other people and the public can see</h2>
+    <ul>
+      <li><strong>The public catalog and agent cards</strong> (<code>/.well-known/ai-catalog.json</code>, <code>/agents/…/agent-card.json</code>) list every published agent so that other agents can find it. They contain your agent's identifier, its signed description ("Calendar agent" followed by the first eight characters of the identifier) and its public verification key. They do not contain your name or e-mail address.</li>
+      <li><strong>Your agent's link</strong> (<code>/book/…</code>) lets any signed-in person ask your agent for a meeting; only share it with people you want to meet.</li>
+      <li><strong>The live log page</strong> (<code>/logs</code>) shows technical events of the last 24 hours: agent identifiers, verification steps and error codes. Names, e-mail addresses, tokens, request bodies and calendar times are excluded by an allow-list and tested to stay out.</li>
+      <li><strong>The other person</strong> sees the agreed time, the meeting title with your display name, and your e-mail address on the invitation.</li>
+    </ul>
+
+    <h2>5. Public booking pages (no Google account)</h2>
+    <p>Separately from Google sign-in, anyone can register a public Google appointment-schedule link. The service then stores that public URL and reads the offered slots from the page when asked. If someone books an appointment through such an agent, the attendee's first name, last name and e-mail address are sent to Anakin (<code>api.anakin.io</code>), a browser-automation provider that submits Google's booking form; the service itself keeps only a hash of the attendee's e-mail address in its booking record.</p>
+
+    <h2>6. How long data is kept</h2>
+    <table>
+      <tr><th>Data</th><th>Kept</th></tr>
+      <tr><td>Account (identifier, e-mail, display name), agent, its card and key</td><td>Until you delete your account</td></tr>
+      <tr><td>Encrypted Google refresh token and connected e-mail</td><td>Until you disconnect Google Calendar or delete your account</td></tr>
+      <tr><td>Browser session</td><td>12 hours, or until you sign out</td></tr>
+      <tr><td>Sign-in attempt (state and PKCE values)</td><td>10 minutes, used once</td></tr>
+      <tr><td>Cached meeting analysis (preferences and up to 20 previous meetings)</td><td>24 hours</td></tr>
+      <tr><td>Meeting proposal awaiting confirmation</td><td>15 minutes</td></tr>
+      <tr><td>Single-use authorisation between agents</td><td>90 seconds</td></tr>
+      <tr><td>Booking record (identifiers, the slot, a hash of the attendee e-mail)</td><td>30 days after the meeting</td></tr>
+      <tr><td>Autonomous booking task record</td><td>30 days after it completes</td></tr>
+      <tr><td>Rate-limit counters (hashed address or account identifier)</td><td>At most 24 hours</td></tr>
+      <tr><td>Public log feed</td><td>24 hours</td></tr>
+      <tr><td>Technical server logs (AWS CloudWatch; identifiers and codes, no personal data by design)</td><td>14 days</td></tr>
+      <tr><td>Database backups (point-in-time recovery)</td><td>Deleted or expired rows remain recoverable for up to 35 days</td></tr>
+    </table>
+
+    <h2>7. Where data is processed</h2>
+    <p>The service runs on Amazon Web Services in the Paris region (<code>eu-west-3</code>): AWS Lambda, Amazon DynamoDB, AWS KMS, Amazon SQS, Amazon Bedrock and Amazon CloudWatch. The website's static pages are delivered through Amazon CloudFront. Google APIs process the sign-in, calendar reads and the meeting creation under Google's own terms. Anakin processes public booking-page submissions as described in section 5.</p>
+
+    <h2>8. Deleting your data</h2>
+    <p>On your account page, "Delete my account and agent" revokes the Google Calendar permission with Google, deletes the encrypted token, your agent with its card and key (which removes it from the public catalog), your display name, your account and your session. The action is immediate and cannot be undone; signing in again creates a new, unrelated agent. What remains afterwards: the meetings already created in the Google Calendars of the people involved (they belong to those people and can be deleted in Google Calendar), booking and task records until their 30-day expiry, the 24-hour public log feed, technical logs for 14 days and backups for up to 35 days. You can also revoke the permission yourself at any time from your Google account's "Third-party apps &amp; services" page. Write to <a href="mailto:mathieu@aithos.fr">mathieu@aithos.fr</a> for anything you cannot do from the page.</p>
+
+    <h2>9. Google API Services User Data Policy</h2>
+    <p>The A2A Calendar POC's use and transfer to any other app of information received from Google APIs will adhere to the <a href="https://developers.google.com/terms/api-services-user-data-policy" rel="noopener noreferrer">Google API Services User Data Policy</a>, including the Limited Use requirements. In particular, Google Calendar data is used only to provide the features described on this page, is not used for advertising, is not sold, and is transferred to a third party only as described here (Amazon Bedrock for the meeting-habit analysis, with human access limited to what security, legal compliance or your own consent require).</p>
+
+    <h2>10. Changes</h2>
+    <p>Changes to this policy are published on this page with a new effective date. The service's source code is public at <a href="https://github.com/Math1987/aithos-calendar" rel="noopener noreferrer">github.com/Math1987/aithos-calendar</a>; the statements above can be checked against it.</p>
+  </main>
+  <footer><span>A2A Calendar POC — a proof of concept.</span><span><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a> · <a href="/logs">Live logs</a></span></footer>
+</div>
+</body>
+</html>

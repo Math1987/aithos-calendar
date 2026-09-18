@@ -35,6 +35,16 @@ resource "aws_s3_object" "logs" {
   content_type  = "text/html; charset=utf-8"
   cache_control = "no-store"
 }
+# Static legal pages at /privacy and /terms (Google OAuth app requirements).
+resource "aws_s3_object" "legal" {
+  for_each      = toset(["privacy", "terms"])
+  bucket        = aws_s3_bucket.website.id
+  key           = each.key
+  source        = "${path.module}/../../web/${each.key}.html"
+  source_hash   = filemd5("${path.module}/../../web/${each.key}.html")
+  content_type  = "text/html; charset=utf-8"
+  cache_control = "public, max-age=300"
+}
 # AI Catalog discovery from the website: Link: <catalog>; rel="ai-catalog".
 resource "aws_cloudfront_response_headers_policy" "website" {
   name = local.name
