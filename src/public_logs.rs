@@ -449,7 +449,7 @@ impl PublicStore for DynamoPublicStore {
             {
                 // Never let the public feed break a request; CloudWatch keeps
                 // the authoritative record.
-                tracing::debug!(event = "public_log_write_failed", error = %error);
+                tracing::warn!(event = "public_log_write_failed", error = %error);
             }
         }
     }
@@ -468,19 +468,24 @@ impl PublicStore for DynamoPublicStore {
                 .limit(limit as i32)
                 .send()
                 .await;
-            if let Ok(page) = result {
-                events.extend(page.items().iter().filter_map(Self::decode));
+            match result {
+                Ok(page) => events.extend(page.items().iter().filter_map(Self::decode)),
+                Err(error) => {
+                    tracing::warn!(event = "public_log_read_failed", error = %error)
+                }
             }
         } else {
             for bucket in Self::buckets().iter().rev() {
                 if events.len() >= limit {
                     break;
                 }
+                // `bucket` is a DynamoDB reserved word: it must be aliased.
                 let mut request = self
                     .client
                     .query()
                     .table_name(&self.table)
-                    .key_condition_expression("bucket = :b")
+                    .key_condition_expression("#b = :b")
+                    .expression_attribute_names("#b", "bucket")
                     .expression_attribute_values(":b", AttributeValue::S(bucket.clone()))
                     .scan_index_forward(false)
                     .limit((limit - events.len()) as i32);
@@ -490,8 +495,11 @@ impl PublicStore for DynamoPublicStore {
                         .expression_attribute_names("#s", "source")
                         .expression_attribute_values(":src", AttributeValue::S(source.clone()));
                 }
-                if let Ok(page) = request.send().await {
-                    events.extend(page.items().iter().filter_map(Self::decode));
+                match request.send().await {
+                    Ok(page) => events.extend(page.items().iter().filter_map(Self::decode)),
+                    Err(error) => {
+                        tracing::warn!(event = "public_log_read_failed", error = %error)
+                    }
                 }
             }
         }
