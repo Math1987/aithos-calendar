@@ -1,4 +1,4 @@
-# Calendar — an auditable A2A + AI Catalog trust proof of concept
+# A2A Calendar POC — an auditable A2A + AI Catalog trust proof of concept
 
 Two people connect their Google Calendars; their agents discover each other
 through an [AI Catalog](https://ai-catalog.io/) and negotiate a meeting over
@@ -51,7 +51,7 @@ for the specification maintainers is
 | A2A JSON-RPC endpoint (multi-tenant) | `https://api.calendar.aithos.world/a2a` |
 | Scenario lab | `https://api.calendar.aithos.world/lab`, `.../lab/report?policy=guaranteed` |
 | Live logs | `https://calendar.aithos.world/logs` (feed: `https://api.calendar.aithos.world/logs/events`) |
-| Website | `https://calendar.aithos.world` |
+| Website, privacy policy, terms | `https://calendar.aithos.world`, `/privacy`, `/terms` |
 
 ## Verify it yourself
 
@@ -117,6 +117,7 @@ keys never leave the HSM.
 | Variable | Meaning |
 | --- | --- |
 | `CALENDAR_PUBLIC_URL`, `CATALOG_URL`, `CALENDAR_WEBSITE_URL` | this deployment's API origin (also the `urn:air` publisher), the catalog it discovers peers in, the website |
+| `GOOGLE_OAUTH_ACCESS`, `GOOGLE_OAUTH_TEST_USERS` | `public` admits any Google account; anything else keeps the allow-list (the default) |
 | `TRUST_PROVIDER` | guarantor implementation; only `local` exists |
 | `OPERATOR_KMS_KEY_ID`, `TRUST_KMS_KEY_ID` | KMS keys of the operator and the guarantor (unset: ephemeral in-memory keys) |
 | `TRUSTED_GUARANTORS` | comma-separated guarantor identities (JWK Set URLs) the discovery client accepts; default: our own |
@@ -133,6 +134,18 @@ keys never leave the HSM.
 - [Operations and deployment](docs/operations.md), [Google OAuth setup](docs/google-oauth-setup.md)
 - [Connected Google accounts: booking flow](docs/google-calendar-booking.md), [autonomous agent and inference budget](docs/autonomous-agent.md)
 - [Archive](docs/archive/README.md) — earlier gates and the previous external-registry design
+
+## Public sign-in, abuse limits and deletion
+
+Any Google account can sign in (`GOOGLE_OAUTH_ACCESS=public`). Before
+that was opened, the abusable paths were bounded (`src/limits.rs`, fixed
+windows on the private store): anonymous agent creation and schedule
+reads per client address, sign-in starts per address, autonomous tasks
+and proposals per account, inbound proposals per host, and the scenario
+lab globally; the A2A body is capped at 64 KiB and the catalog at 1 MiB.
+`DELETE /account` (button on the account page) revokes the Google grant
+and removes the account, the agent, its card and key, and the catalog
+entry; `web/privacy.html` states what is kept and for how long.
 
 ## Scope and guard-rails
 
