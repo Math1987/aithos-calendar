@@ -65,7 +65,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         if self.path == '/auth/agent':
-            self.reply({'id':'test-account','identifier':'urn:aithos:calendar:agent:test-account','publication_status':'published','calendar_connected':False,'share_url':origin+'/book/test-account','agent_card_url':'https://registry.aithos.world/v1/agents/test-account/agent-card.json'})
+            self.reply({'id':'test-account','identifier':'urn:air:127.0.0.1:agent:test-account','publication_status':'published','calendar_connected':False,'share_url':origin+'/book/test-account','agent_card_url':origin+'/agents/test-account/agent-card.json'})
             return
         if self.path == '/auth/logout':
             args.signed_in=False
@@ -93,7 +93,7 @@ class Handler(BaseHTTPRequestHandler):
             tenant = 'test-host' if url.endswith('/host') else 'test-guest'
             pending = args.pending_once and tenant not in seen
             seen.add(tenant)
-            self.reply({'id': tenant, 'identifier': 'urn:aithos:calendar:agent:' + tenant,
+            self.reply({'id': tenant, 'identifier': 'urn:air:127.0.0.1:agent:' + tenant,
                         'share_url': origin + '/book/' + tenant, 'mock': False,
                         'publication_status': 'pending' if pending else 'published'}, 202 if pending else 200)
         elif self.path == '/bookings':
@@ -107,7 +107,7 @@ class Handler(BaseHTTPRequestHandler):
             params = value['params']
             request = params['message']['parts'][0]['data']
             data = {'duration_minutes':30, 'status': args.result, 'mock': False, 'reserved': False,
-                    'organizer': 'urn:aithos:calendar:agent:' + params['tenant'],
+                    'organizer': 'urn:air:127.0.0.1:agent:' + params['tenant'],
                     'peer': request['peer'], 'trace_id': params['metadata']['calendarTraceId'],
                     'slot': {'start': '2030-01-15T09:30:00Z', 'end': '2030-01-15T10:00:00Z'} if args.result == 'slot_found' else None}
             if args.result == 'error': data['code'] = 'peer_unavailable'

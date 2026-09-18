@@ -259,7 +259,23 @@ async fn callback(
                 binding: String::new(),
             };
             match s.store.create(&account_key, row).await {
-                Ok(true) => candidate,
+                Ok(true) => {
+                    // Name only, by account id, for meeting titles; the
+                    // e-mail stays with the Google-keyed account row.
+                    let profile = Entry {
+                        value: json!({"name": candidate.name}),
+                        expires: 0,
+                        binding: String::new(),
+                    };
+                    if s.store
+                        .put(&format!("profile:{}", candidate.id), profile)
+                        .await
+                        .is_err()
+                    {
+                        return unavailable();
+                    }
+                    candidate
+                }
                 Ok(false) => match s.store.get(&account_key, now()).await {
                     Ok(Some(row)) => match serde_json::from_value(row.value) {
                         Ok(a) => a,

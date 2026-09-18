@@ -7,6 +7,7 @@
   <meta name="referrer" content="no-referrer">
   <meta name="description" content="Share a Google booking page and test finding a time together.">
   <title>Calendar — Find a time together</title>
+  <link rel="ai-catalog" type="application/ai-catalog+json" href="https://api.calendar.aithos.world/.well-known/ai-catalog.json">
   <style>
     :root { color-scheme: light; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #222b28; background: #f7f7f2; font-synthesis: none; }
     * { box-sizing: border-box; }
@@ -83,6 +84,8 @@
 <script type="module">
 const API = 'https://api.calendar.aithos.world';
 const WEBSITE = 'https://calendar.aithos.world';
+// Agent identifiers follow AI Catalog's urn:air scheme: the publisher is the API host.
+const URN = 'urn:air:' + new URL(API).host + ':agent:';
 const app = document.querySelector('#app');
 const validId = id => /^[a-zA-Z0-9_-]{1,64}$/.test(id);
 let active = false;
@@ -156,7 +159,7 @@ function wait(ms, signal) {
 async function publishedAgent(url, signal) {
   for (let attempt = 0; attempt < 5; attempt++) {
     const agent = await request('/agents', signal, {booking_page_url: url});
-    if (!validId(agent.id) || agent.identifier !== 'urn:aithos:calendar:agent:' + agent.id || typeof agent.mock !== 'boolean') {
+    if (!validId(agent.id) || agent.identifier !== URN + agent.id || typeof agent.mock !== 'boolean') {
       throw new UserError('The service returned an unexpected agent. Please try again.');
     }
     if (agent.publication_status === 'published') {
@@ -277,7 +280,7 @@ async function booking(id) {
       }}, true);
       if (reply.error) throw new UserError('The calendars could not check availability. Please try again.');
       const result = reply.result?.message?.parts?.find(p => p.data)?.data;
-      if (!result || result.mock !== false || result.reserved !== false || result.organizer !== 'urn:aithos:calendar:agent:' + host || result.peer !== peer.identifier || result.trace_id !== traceId) {
+      if (!result || result.mock !== false || result.reserved !== false || result.organizer !== URN + host || result.peer !== peer.identifier || result.trace_id !== traceId) {
         throw new UserError('We could not verify the availability result. Please try again.');
       }
       if (result.status === 'error') throw new UserError(messages[result.code] || 'The calendars could not check availability. Please try again.');
@@ -427,8 +430,8 @@ async function accountPage(sharedHost) {
     calendar_connection_required:'Connect Google Calendar first.',
     calendar_unavailable:'Google Calendar could not be reached. Try again shortly.',
     host_calendar_not_connected:'The owner of this link must connect or reconnect their Google Calendar first.',
-    unknown_connected_agent:'Use the Aithos agent link of someone who signed in with Google.',
-    invalid_agent_link:'Paste an Aithos link in the form '+WEBSITE+'/book/…',
+    unknown_connected_agent:'Use the agent link of someone who signed in with Google.',
+    invalid_agent_link:'Paste an agent link in the form '+WEBSITE+'/book/…',
     same_account:'This is your own agent. Paste the other person’s link.',
     proposal_expired:'This proposal expired. Find a new time before confirming.',
     sign_in_required:'Your session expired. Sign in again.',
@@ -534,7 +537,7 @@ async function accountPage(sharedHost) {
         outcome('Your agent is still working','You can leave this page and return to check the same request.');
       }catch(error){
         if(!active?.id&&error.status===400&&['invalid_agent_link','same_account','invalid_request_id'].includes(error.message)) {
-          remember(null);outcome('Check the agent link',accountMessages[error.message]||'Paste the other person’s Aithos agent link.');
+          remember(null);outcome('Check the agent link',accountMessages[error.message]||'Paste the other person’s agent link.');
         } else outcome('Your request needs checking','We could not read its status. Resume this same request to avoid booking twice. '+(accountMessages[error.message]||''));
       }
       finally{lock(false);}

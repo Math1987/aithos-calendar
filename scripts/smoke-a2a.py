@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only production acceptance for a trusted dynamic Calendar catalog."""
+"""Read-only production acceptance for the Calendar catalog and A2A flows."""
 import datetime
 import json
 import sys
@@ -52,6 +52,7 @@ def main(catalog_url):
     assert len({e["identifier"] for e in entries}) == len(entries)
     origin = urllib.parse.urlsplit(catalog_url)
     api = f"{origin.scheme}://{origin.netloc}/a2a"
+    urn = f"urn:air:{origin.hostname}:agent:"
     # Public onboarding must be reachable without IAM; invalid input creates nothing.
     try:
         fetch(f"{origin.scheme}://{origin.netloc}/agents", {"booking_page_url":"https://example.com/not-google"})
@@ -67,7 +68,8 @@ def main(catalog_url):
         interface = next(i for i in card["supportedInterfaces"] if i["protocolBinding"] == "JSONRPC")
         assert interface["url"] == api
         tenant = interface["tenant"]
-        assert entry["identifier"] == f"urn:aithos:calendar:agent:{tenant}"
+        assert entry["identifier"] == f"{urn}{tenant}"
+        assert entry["trustManifest"]["subject"]["url"] == entry["url"]
         response = send(interface, tenant)
         assert response["result"]["message"]["parts"][0]["text"] == f"Hello from {card['name']}", response
         if card["version"] in ("0.5.0", "0.6.0"):
@@ -127,7 +129,7 @@ def main(catalog_url):
             print(f"PASS {caller[0]['displayName']} → {peer[0]['displayName']}: {result['status']}; trace_id={result['trace_id']}")
     caller = agents[0]
     result = data(send(caller[1], caller[1]["tenant"], {
-        "operation": "find_common_slot", "peer": "urn:aithos:calendar:agent:missing", "duration_minutes": 30,
+        "operation": "find_common_slot", "peer": f"{urn}missing", "duration_minutes": 30,
     }))
     assert result["status"] == "error" and result["code"] == "peer_not_found", result
     print("PASS absent peer rejected")

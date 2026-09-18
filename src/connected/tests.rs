@@ -52,9 +52,13 @@ impl Calendars for FakeCalendars {
         id: &str,
         slot: &Slot,
         email: &str,
+        title: &str,
     ) -> CalendarResult<Event> {
         assert_eq!(host, "host");
         assert_eq!(email, "guest@example.com");
+        // The host has a sign-in profile name; the guest has none and falls
+        // back to the local part of the connected e-mail.
+        assert_eq!(title, "John Doe / guest");
         self.inserts.fetch_add(1, Ordering::SeqCst);
         let event = Event {
             id: id.into(),
@@ -103,10 +107,22 @@ async fn fixture() -> (
     }
     let config = crate::Config::new(&base, trust, agents.clone());
     let calendars = Arc::new(FakeCalendars::default());
+    let auth_store = Arc::new(MemoryAuthStore::default());
+    auth_store
+        .put(
+            "profile:host",
+            crate::auth_store::Entry {
+                value: json!({"name":"  John Doe\n"}),
+                expires: 0,
+                binding: String::new(),
+            },
+        )
+        .await
+        .unwrap();
     let service = Arc::new(Connected {
         jobs: None,
         calendars: calendars.clone(),
-        store: Arc::new(MemoryAuthStore::default()),
+        store: auth_store,
         bookings: Arc::new(MemoryBookingStore::default()),
         agents: agents.clone(),
         directory: Arc::new(config.directory().unwrap()),

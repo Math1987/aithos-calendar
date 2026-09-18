@@ -46,7 +46,37 @@ fn view(r: &BookingOperation) -> Value {
         Stage::Pending|Stage::ConfirmationRequired=>"confirming_guest",Stage::Unknown=>"outcome_unknown",Stage::Submitting=>"processing"
     },"reserved":r.stage==Stage::Booked,"retry_after_ms":3000})
 }
+/// A display name safe for a calendar title: trimmed, no control
+/// characters, bounded length.
+pub(crate) fn clean_name(raw: &str) -> Option<String> {
+    let cleaned: String = raw
+        .chars()
+        .filter(|c| !c.is_control())
+        .collect::<String>()
+        .trim()
+        .chars()
+        .take(64)
+        .collect();
+    (!cleaned.is_empty()).then_some(cleaned)
+}
+
 impl Connected {
+    /// The person behind an account, for the meeting title: the Google
+    /// sign-in name when stored, else the local part of the connected
+    /// e-mail, else `fallback`.
+    async fn display_name(&self, id: &str, fallback: &str) -> String {
+        if let Ok(Some(row)) = self.store.get(&format!("profile:{id}"), now()).await
+            && let Some(name) = row.value["name"].as_str().and_then(clean_name)
+        {
+            return name;
+        }
+        if let Ok(email) = self.calendars.email(id).await
+            && let Some(local) = email.split('@').next().and_then(clean_name)
+        {
+            return local;
+        }
+        fallback.to_owned()
+    }
     async fn call(
         &self,
         host: &str,
@@ -163,8 +193,13 @@ impl Connected {
                     return Err("slot_no_longer_available");
                 }
                 let email = self.calendars.email(caller).await?;
+                let title = format!(
+                    "{} / {}",
+                    self.display_name(tenant, "Host").await,
+                    self.display_name(caller, "Guest").await
+                );
                 self.calendars
-                    .insert(tenant, &event_id, &r.slot, &email)
+                    .insert(tenant, &event_id, &r.slot, &email, &title)
                     .await?;
                 Ok(json!({"status":"event_created","event_id":event_id}))
             }
@@ -535,3 +570,17 @@ async fn disconnect(State(s): State<Arc<Auth>>, headers: HeaderMap) -> Response 
 
 #[cfg(test)]
 pub(crate) mod tests;
+
+#[cfg(test)]
+mod name_tests {
+    use super::clean_name;
+
+    #[test]
+    fn names_are_trimmed_stripped_of_control_characters_and_bounded() {
+        assert_eq!(clean_name("  John Doe \n").as_deref(), Some("John Doe"));
+        assert_eq!(clean_name("Ja\u{0}ne\u{7f}").as_deref(), Some("Jane"));
+        assert_eq!(clean_name(" \t").as_deref(), None);
+        assert_eq!(clean_name(&"x".repeat(100)).unwrap().chars().count(), 64);
+        assert_eq!(clean_name("Zoë Ünal").as_deref(), Some("Zoë Ünal"));
+    }
+}

@@ -44,12 +44,15 @@ pub trait Calendars: Send + Sync {
     async fn availability(&self, id: &str, window: &Window) -> Result<Availability>;
     async fn email(&self, id: &str) -> Result<String>;
     async fn event(&self, id: &str, event_id: &str, slot: &Slot) -> Result<Option<Event>>;
+    /// Create the meeting on the host's primary calendar. `title` is the
+    /// event summary, "<Host> / <Guest>"; it never reaches the logs.
     async fn insert(
         &self,
         id: &str,
         event_id: &str,
         slot: &Slot,
         guest_email: &str,
+        title: &str,
     ) -> Result<Event>;
     async fn accept(&self, id: &str, event_id: &str, slot: &Slot) -> Result<Option<Event>>;
 }
@@ -465,12 +468,15 @@ impl Calendars for GoogleCalendar {
         event_id: &str,
         slot: &Slot,
         guest_email: &str,
+        title: &str,
     ) -> Result<Event> {
         let token = self.token(id).await?;
+        // The private property marks events this service created; nothing
+        // reads it back (reconciliation uses the deterministic event id).
         let response=self.http.post(format!("{}/calendars/primary/events", self.api)).query(&[("sendUpdates","all")]).bearer_auth(&token).json(&json!({
-            "id":event_id,"summary":"Aithos Calendar meeting","start":{"dateTime":slot.start},"end":{"dateTime":slot.end},
+            "id":event_id,"summary":title,"start":{"dateTime":slot.start},"end":{"dateTime":slot.end},
             "attendees":[{"email":guest_email}],"guestsCanModify":false,"guestsCanInviteOthers":false,
-            "extendedProperties":{"private":{"aithosBooking":event_id}}
+            "extendedProperties":{"private":{"a2aBookingId":event_id}}
         })).send().await.map_err(|_|"booking_outcome_unknown")?;
         if response.status() == 409 {
             return self
