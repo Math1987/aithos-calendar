@@ -4,9 +4,10 @@ resource "aws_iam_role_policy" "lambda_agents" {
   role = aws_iam_role.lambda.id
   policy = jsonencode({ Version = "2012-10-17", Statement = [
     {
-      Effect    = "Allow", Action = ["dynamodb:GetItem", "dynamodb:Scan"],
-      Resource  = "arn:aws:dynamodb:${local.region}:${local.account}:table/${local.name}-agents",
-      Condition = { "ForAllValues:StringEquals" = { "dynamodb:Attributes" = ["id", "record", "published"] }, "Null" = { "dynamodb:Attributes" = "false" } }
+      Effect   = "Allow", Action = ["dynamodb:GetItem", "dynamodb:Scan"],
+      Resource = "arn:aws:dynamodb:${local.region}:${local.account}:table/${local.name}-agents",
+      # signing_key is read only to sign outgoing A2A requests (src/trust/caller.rs).
+      Condition = { "ForAllValues:StringEquals" = { "dynamodb:Attributes" = ["id", "record", "published", "signing_key"] }, "Null" = { "dynamodb:Attributes" = "false" } }
     },
     {
       Effect   = "Allow", Action = ["dynamodb:PutItem", "dynamodb:UpdateItem"],

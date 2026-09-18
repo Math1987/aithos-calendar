@@ -26,6 +26,26 @@ resource "aws_s3_object" "index" {
   content_type  = "text/html; charset=utf-8"
   cache_control = "no-store"
 }
+# Served at /logs: a live, allow-listed log feed (docs/logging.md).
+resource "aws_s3_object" "logs" {
+  bucket        = aws_s3_bucket.website.id
+  key           = "logs"
+  source        = "${path.module}/../../web/logs.html"
+  source_hash   = filemd5("${path.module}/../../web/logs.html")
+  content_type  = "text/html; charset=utf-8"
+  cache_control = "no-store"
+}
+# AI Catalog discovery from the website: Link: <catalog>; rel="ai-catalog".
+resource "aws_cloudfront_response_headers_policy" "website" {
+  name = local.name
+  custom_headers_config {
+    items {
+      header   = "Link"
+      value    = "<https://${local.api_domain}/.well-known/ai-catalog.json>; rel=\"ai-catalog\"; type=\"application/ai-catalog+json\""
+      override = true
+    }
+  }
+}
 resource "aws_cloudfront_origin_access_control" "website" {
   name                              = local.name
   origin_access_control_origin_type = "s3"
@@ -51,7 +71,8 @@ resource "aws_cloudfront_distribution" "website" {
     target_origin_id       = "website"
     viewer_protocol_policy = "redirect-to-https"
     # Serve the latest single-file application without an invalidation step.
-    cache_policy_id = data.aws_cloudfront_cache_policy.disabled.id
+    cache_policy_id            = data.aws_cloudfront_cache_policy.disabled.id
+    response_headers_policy_id = aws_cloudfront_response_headers_policy.website.id
   }
   # The private S3 origin returns 403 for missing keys. Serve the same application
   # for /book/{id} and the tutorial; JavaScript handles unknown paths explicitly.

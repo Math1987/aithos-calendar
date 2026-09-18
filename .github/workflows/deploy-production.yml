@@ -69,6 +69,22 @@ jobs:
       - name: Verify discovery and A2A collaboration
         working-directory: .
         run: python3 scripts/smoke-a2a.py https://api.calendar.aithos.world/.well-known/ai-catalog.json
+      - name: Verify the trust chain independently (Python)
+        working-directory: .
+        run: |
+          python3 -m pip install --quiet cryptography==46.0.7 rfc8785==0.1.4
+          python3 scripts/verify-trust.py https://api.calendar.aithos.world/.well-known/ai-catalog.json \
+            --policy guaranteed \
+            --trusted-guarantor https://api.calendar.aithos.world/trust-provider/.well-known/jwks.json
+      - name: Run the scenario lab against production
+        working-directory: .
+        run: |
+          curl --fail --silent --show-error --max-time 60 \
+            "https://api.calendar.aithos.world/lab/report?policy=guaranteed" > lab-report.json
+          python3 -c 'import json; r=json.load(open("lab-report.json")); print(json.dumps(r, indent=1)); assert r["passed"], "lab scenario diverged"'
+          TRACE=$(python3 -c 'import json; print(json.load(open("lab-report.json"))["trace_id"])')
+          curl --fail --silent --show-error --max-time 30 "https://api.calendar.aithos.world/logs/events?trace=$TRACE&limit=5" \
+            | python3 -c 'import json,sys; e=json.load(sys.stdin)["events"]; assert e, "lab trace absent from the public feed"'
       - name: Verify browser routes and CORS
         working-directory: .
         run: python3 scripts/smoke-web.py

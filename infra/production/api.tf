@@ -36,8 +36,19 @@ resource "aws_lambda_function" "health" {
       GOOGLE_OAUTH_CLIENT_SECRET_ID = "calendar/production/google-oauth-client"
       GOOGLE_OAUTH_TEST_USERS       = "mathieu@aithos.fr,mathieucolla@gmail.com"
       AGENTS_TABLE                  = aws_dynamodb_table.agents.name
-      REGISTRY_ORIGIN               = "https://registry.aithos.world"
       CALENDAR_WEBSITE_URL          = "https://${local.website_domain}"
+      # Trust layer (docs/trust-layer.md): keys in KMS, guarantor pinned to ourselves.
+      TRUST_PROVIDER       = "local"
+      OPERATOR_KMS_KEY_ID  = "alias/${local.name}-operator"
+      TRUST_KMS_KEY_ID     = "alias/${local.name}-guarantor"
+      TRUSTED_GUARANTORS   = "https://${local.api_domain}/trust-provider/.well-known/jwks.json"
+      TRUST_POLICY_MOCK    = "integrity"
+      TRUST_POLICY_LIVE    = "guaranteed"
+      TRUST_POLICY_BOOKING = "verified-account"
+      LAB_KEY_SEED         = random_password.lab_seed.result
+      # Public feed (docs/logging.md): 24 h live tail.
+      PUBLIC_LOGS_TABLE       = aws_dynamodb_table.public_logs.name
+      PUBLIC_LOGS_TTL_SECONDS = "86400"
     }
   }
 }
