@@ -37,9 +37,9 @@ resource "aws_iam_role_policy" "lambda_trust" {
     { Effect = "Allow", Action = ["dynamodb:BatchWriteItem", "dynamodb:PutItem", "dynamodb:Query"], Resource = ["arn:aws:dynamodb:${local.region}:${local.account}:table/${local.name}-public-logs", "arn:aws:dynamodb:${local.region}:${local.account}:table/${local.name}-public-logs/index/trace-index"] }
   ] })
 }
-resource "aws_iam_role_policy" "deploy_public_logs" {
-  name = "public-logs-table-deployment"
-  role = aws_iam_role.deploy.id
+# The deploy role is at the inline-policy size limit; this one is managed.
+resource "aws_iam_policy" "deploy_trust" {
+  name = "${local.name}-deploy-trust"
   policy = jsonencode({ Version = "2012-10-17", Statement = [
     {
       Effect   = "Allow", Action = ["dynamodb:CreateTable", "dynamodb:DescribeTable", "dynamodb:UpdateTable", "dynamodb:DeleteTable", "dynamodb:DescribeContinuousBackups", "dynamodb:UpdateContinuousBackups", "dynamodb:DescribeTimeToLive", "dynamodb:UpdateTimeToLive", "dynamodb:ListTagsOfResource", "dynamodb:TagResource", "dynamodb:UntagResource"],
@@ -50,4 +50,8 @@ resource "aws_iam_role_policy" "deploy_public_logs" {
     { Effect = "Allow", Action = ["s3:GetObject*", "s3:PutObject*", "s3:DeleteObject*"], Resource = "arn:aws:s3:::${local.website_bucket}/logs" },
     { Effect = "Allow", Action = ["cloudfront:CreateResponseHeadersPolicy", "cloudfront:GetResponseHeadersPolicy", "cloudfront:UpdateResponseHeadersPolicy", "cloudfront:DeleteResponseHeadersPolicy", "cloudfront:ListResponseHeadersPolicies"], Resource = "*" }
   ] })
+}
+resource "aws_iam_role_policy_attachment" "deploy_trust" {
+  role       = aws_iam_role.deploy.name
+  policy_arn = aws_iam_policy.deploy_trust.arn
 }
