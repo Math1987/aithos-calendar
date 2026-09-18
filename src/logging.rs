@@ -7,17 +7,30 @@ use tracing::Instrument;
 use tracing_subscriber::EnvFilter;
 
 pub fn init() -> Result<(), lambda_http::Error> {
+    init_with(None)
+}
+
+/// JSON logs to stderr (CloudWatch), plus the allow-listed public copy
+/// when a sink is given (see `public_logs.rs`).
+pub fn init_with(
+    public: Option<std::sync::Arc<crate::public_logs::Sink>>,
+) -> Result<(), lambda_http::Error> {
+    use tracing_subscriber::{Layer, layer::SubscriberExt, util::SubscriberInitExt};
     let filter = std::env::var("RUST_LOG")
         .unwrap_or_else(|_| "warn,calendar=info,a2a_client=info,a2a_server=info".into());
-    tracing_subscriber::fmt()
+    let stderr = tracing_subscriber::fmt::layer()
         .json()
         .flatten_event(true)
         .with_current_span(true)
         .with_span_list(false)
         .with_target(true)
         .with_ansi(false)
-        .with_writer(std::io::stderr)
-        .with_env_filter(EnvFilter::try_new(filter)?)
+        .with_writer(std::io::stderr);
+    let public = public.map(|sink| crate::public_logs::PublicLayer { sink });
+    tracing_subscriber::registry()
+        .with(EnvFilter::try_new(filter)?)
+        .with(stderr)
+        .with(public.map(|layer| layer.boxed()))
         .try_init()?;
     Ok(())
 }

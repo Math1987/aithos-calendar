@@ -2,7 +2,8 @@ use lambda_http::Error;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Error> {
-    calendar::logging::init()?;
+    let sink = std::sync::Arc::new(calendar::public_logs::Sink::default());
+    calendar::logging::init_with(Some(sink.clone()))?;
     let listen = std::env::var("CALENDAR_LISTEN").ok();
     let base_url = std::env::var("CALENDAR_PUBLIC_URL").or_else(|error| {
         listen
@@ -28,6 +29,7 @@ async fn main() -> Result<(), Error> {
             calendar::Config::new(&base_url, trust, store)
                 .with_operator(operator)
                 .with_lab(lab)
+                .with_public_logs(calendar::public_logs::PublicLogs::memory(sink))
                 .with_catalog(&catalog_url),
         )?
     } else {
@@ -46,6 +48,20 @@ async fn main() -> Result<(), Error> {
             table,
         ));
         let kms = aws_sdk_kms::Client::new(&config);
+        let public_logs = calendar::public_logs::PublicLogs {
+            sink: sink.clone(),
+            store: match std::env::var("PUBLIC_LOGS_TABLE") {
+                Ok(table) => std::sync::Arc::new(calendar::public_logs::DynamoPublicStore::new(
+                    aws_sdk_dynamodb::Client::new(&config),
+                    table,
+                    std::env::var("PUBLIC_LOGS_TTL_SECONDS")
+                        .ok()
+                        .and_then(|v| v.parse().ok())
+                        .unwrap_or(86_400),
+                )),
+                Err(_) => std::sync::Arc::new(calendar::public_logs::MemoryPublicStore::default()),
+            },
+        };
         let lab = std::sync::Arc::new(calendar::lab::Lab::from_env());
         let trust = calendar::trust::from_env(&base_url, Some(&kms), &lab).await?;
         let operator = calendar::trust::operator_from_env(&base_url, Some(&kms)).await?;
@@ -115,34 +131,11 @@ async fn main() -> Result<(), Error> {
                     let jobs = jobs.clone();
                     let service = connected.clone();
                     let model = model.clone();
+                    let public_logs = public_logs.clone();
                     async move {
-                        // Operator-only Lambda invocation, synthetic data, same global budget.
-                        // There is no HTTP route for this diagnostic.
-                        if event.payload["operation"] == "verify_model" {
-                            let result=model.analyze(serde_json::json!({"timezone":"Europe/Paris","observations":[]})).await;
-                            return Ok::<_,lambda_runtime::Error>(match result {
-                                Ok(value)=>serde_json::json!({"status":"model_available","analysis":value}),
-                                Err(code)=>serde_json::json!({"status":"deterministic_fallback","code":code}),
-                            });
-                        }
-                        let mut failures = vec![];
-                        if let Some(records) = event.payload["Records"].as_array() {
-                            for record in records {
-                                let result = match record["body"].as_str() {
-                                    Some(id) => jobs.process(id, &service, Some(&model)).await,
-                                    None => Err("invalid_task"),
-                                };
-                                if let Err(code) = result {
-                                    tracing::warn!(event = "agent_job_retry", code);
-                                    failures.push(
-                                        serde_json::json!({"itemIdentifier":record["messageId"]}),
-                                    );
-                                }
-                            }
-                        }
-                        Ok::<_, lambda_runtime::Error>(
-                            serde_json::json!({"batchItemFailures":failures}),
-                        )
+                        let outcome = worker(event, &jobs, &service, &model).await;
+                        public_logs.flush().await;
+                        outcome
                     }
                 },
             ))
@@ -153,6 +146,7 @@ async fn main() -> Result<(), Error> {
             calendar::Config::new(&base_url, trust.clone(), store.clone())
                 .with_operator(operator)
                 .with_lab(lab)
+                .with_public_logs(public_logs.clone())
                 .with_catalog(&catalog_url)
                 .with_website(&website)
                 .with_trusted_guarantors(trusted_guarantors)
@@ -184,7 +178,7 @@ async fn main() -> Result<(), Error> {
             .merge(calendar::auth::router(auth.clone()))
             .merge(calendar::connected::router(auth.clone()))
             .merge(calendar::agent::jobs::router(auth));
-        if let (Ok(table), Ok(secret_id)) = (
+        let app = if let (Ok(table), Ok(secret_id)) = (
             std::env::var("BOOKINGS_TABLE"),
             std::env::var("ANAKIN_SECRET_ID"),
         ) {
@@ -204,7 +198,13 @@ async fn main() -> Result<(), Error> {
             ))
         } else {
             app
-        }
+        };
+        // Every route, including the ones merged above, flushes the public
+        // log feed before the response leaves the Lambda.
+        app.layer(axum::middleware::from_fn_with_state(
+            public_logs,
+            calendar::public_logs::flush_after,
+        ))
     };
     if let Some(address) = listen {
         let listener = tokio::net::TcpListener::bind(&address).await?;
@@ -214,4 +214,38 @@ async fn main() -> Result<(), Error> {
         lambda_http::run(app).await?;
     }
     Ok(())
+}
+
+/// One SQS batch (or an operator diagnostic) for the autonomous worker.
+async fn worker(
+    event: lambda_runtime::LambdaEvent<serde_json::Value>,
+    jobs: &calendar::agent::jobs::Jobs,
+    service: &std::sync::Arc<calendar::connected::Connected>,
+    model: &std::sync::Arc<calendar::agent::model::Model>,
+) -> Result<serde_json::Value, lambda_runtime::Error> {
+    // Operator-only Lambda invocation, synthetic data, same global budget.
+    // There is no HTTP route for this diagnostic.
+    if event.payload["operation"] == "verify_model" {
+        let result = model
+            .analyze(serde_json::json!({"timezone":"Europe/Paris","observations":[]}))
+            .await;
+        return Ok(match result {
+            Ok(value) => serde_json::json!({"status":"model_available","analysis":value}),
+            Err(code) => serde_json::json!({"status":"deterministic_fallback","code":code}),
+        });
+    }
+    let mut failures = vec![];
+    if let Some(records) = event.payload["Records"].as_array() {
+        for record in records {
+            let result = match record["body"].as_str() {
+                Some(id) => jobs.process(id, service, Some(model)).await,
+                None => Err("invalid_task"),
+            };
+            if let Err(code) = result {
+                tracing::warn!(event = "agent_job_retry", code);
+                failures.push(serde_json::json!({"itemIdentifier":record["messageId"]}));
+            }
+        }
+    }
+    Ok(serde_json::json!({"batchItemFailures":failures}))
 }

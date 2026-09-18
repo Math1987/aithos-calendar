@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f7f2">
+  <meta name="referrer" content="no-referrer">
+  <meta name="description" content="Live, allow-listed log feed of the Calendar A2A agents: trust verification, AI Catalog and A2A SDK events.">
+  <title>Calendar — Live logs</title>
+  <link rel="ai-catalog" type="application/ai-catalog+json" href="https://api.calendar.aithos.world/.well-known/ai-catalog.json">
+  <style>
+    :root { color-scheme: light; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #222b28; background: #f7f7f2; font-synthesis: none; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 280px; }
+    a { color: #285c46; text-underline-offset: 4px; }
+    a:hover { color: #142f24; }
+    button, input, select { font: inherit; }
+    :focus-visible { outline: 3px solid #799e89; outline-offset: 4px; }
+    [hidden] { display: none !important; }
+    .shell { max-width: 1024px; margin: auto; padding: 0 32px; }
+    header { display: flex; align-items: center; justify-content: space-between; padding: 30px 0; border-bottom: 1px solid #dddfd6; }
+    .brand { display: inline-flex; align-items: center; gap: 10px; color: #222b28; font-weight: 650; font-size: 19px; text-decoration: none; letter-spacing: -.5px; }
+    .brand svg { width: 27px; height: 27px; }
+    .badge { font-size: 12px; padding: 6px 10px; border: 1px solid #dadfd3; border-radius: 99px; color: #5c655d; text-decoration: none; }
+    main { margin: 48px auto 60px; }
+    .eyebrow { color: #5d705e; font-size: 11px; font-weight: 700; letter-spacing: 1.7px; text-transform: uppercase; margin-bottom: 14px; }
+    h1 { font-family: Georgia, "Times New Roman", serif; font-weight: 400; font-size: clamp(32px, 4vw, 44px); letter-spacing: -1.4px; line-height: 1.1; margin: 0 0 16px; }
+    .intro { color: #626b64; font-size: 16px; line-height: 1.6; max-width: 640px; margin: 0 0 26px; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 16px; }
+    .chip { border: 1px solid #cbd2c6; background: #fff; color: #285c46; border-radius: 99px; padding: 8px 14px; font-size: 13px; cursor: pointer; }
+    .chip[aria-pressed="true"] { background: #285c46; color: #fff; border-color: #285c46; }
+    input { min-width: 0; border: 1px solid #cbd2c6; border-radius: 8px; padding: 9px 12px; background: #fff; color: #222b28; font-size: 13px; flex: 1 1 320px; }
+    .ghost { border: 1px solid #cbd2c6; background: #fff; color: #285c46; border-radius: 8px; padding: 9px 14px; font-size: 13px; cursor: pointer; }
+    .feed { background: #fff; border: 1px solid #dfe3d9; border-radius: 16px; box-shadow: 0 6px 24px #28382705; overflow: hidden; }
+    .feed table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .feed th { text-align: left; font-weight: 600; color: #5c655d; padding: 12px 14px; border-bottom: 1px solid #e8ebe2; font-size: 12px; }
+    .feed td { padding: 9px 14px; border-bottom: 1px solid #f0f2ea; vertical-align: top; font-variant-numeric: tabular-nums; }
+    .feed tr:last-child td { border-bottom: 0; }
+    .source { display: inline-block; padding: 3px 8px; border-radius: 99px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+    .source.trust { background: #edf5ec; color: #28563a; }
+    .source.ai-catalog { background: #eef2fa; color: #2f4a7a; }
+    .source.a2a-sdk { background: #f6f0e6; color: #7a5a24; }
+    .source.app { background: #f2f2f0; color: #4c554d; }
+    .level.WARN { color: #8b3b2a; font-weight: 600; }
+    .level.ERROR { color: #8b1d1d; font-weight: 700; }
+    .fields { color: #626b64; overflow-wrap: anywhere; }
+    .fields b { color: #222b28; font-weight: 600; }
+    .fields .code { color: #8b3b2a; font-weight: 600; }
+    .trace { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: #747d70; cursor: pointer; text-decoration: underline dotted; }
+    .empty { padding: 40px 14px; color: #6a7068; text-align: center; }
+    .status { margin-top: 14px; color: #6a7068; font-size: 13px; display: flex; gap: 16px; flex-wrap: wrap; }
+    .how { margin-top: 30px; color: #6a7068; font-size: 13px; line-height: 1.7; max-width: 720px; }
+    .how code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; background: #f2f5ee; padding: 1px 5px; border-radius: 4px; }
+    footer { margin: 30px 0; color: #939b90; font-size: 12px; display: flex; justify-content: space-between; gap: 20px; }
+    footer a { color: #747d70; }
+    @media (max-width: 600px) { .shell { padding: 0 20px; } header { padding: 22px 0; } main { margin: 32px auto; } .feed th:nth-child(1), .feed td:nth-child(1) { display: none; } }
+  </style>
+</head>
+<body>
+<div class="shell">
+  <header>
+    <a class="brand" href="/" aria-label="Calendar home"><svg aria-hidden="true" viewBox="0 0 28 28" fill="none"><rect x="3" y="5" width="22" height="20" rx="5" stroke="currentColor" stroke-width="1.7"/><path d="M3 12h22M9 2v6M19 2v6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="m10 18 3 3 6-6" stroke="#285c46" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>Calendar</a>
+    <a class="badge" href="/">Find a time together</a>
+  </header>
+  <main>
+    <div class="eyebrow">Live logs</div>
+    <h1>What the agents are doing, as it happens</h1>
+    <p class="intro">An allow-listed copy of the application, trust-layer and A2A SDK events: identifiers, codes and digests only, never names, e-mails, tokens, bodies or calendar times. Filter by source or paste a trace id to follow one exchange end to end.</p>
+    <div class="toolbar" role="group" aria-label="Filters">
+      <button class="chip" data-source="" aria-pressed="true">All</button>
+      <button class="chip" data-source="trust" aria-pressed="false">Trust</button>
+      <button class="chip" data-source="ai-catalog" aria-pressed="false">AI Catalog</button>
+      <button class="chip" data-source="a2a-sdk" aria-pressed="false">A2A SDK</button>
+      <button class="chip" data-source="app" aria-pressed="false">Application</button>
+      <input id="trace" placeholder="Trace id (optional)" aria-label="Trace id" spellcheck="false">
+      <button class="ghost" id="pause" aria-pressed="false">Pause</button>
+      <button class="ghost" id="lab">Run the lab</button>
+    </div>
+    <div class="feed">
+      <table aria-live="polite">
+        <thead><tr><th>Time (UTC)</th><th>Source</th><th>Event</th><th>Details</th><th>Trace</th></tr></thead>
+        <tbody id="rows"><tr><td colspan="5" class="empty">Waiting for events…</td></tr></tbody>
+      </table>
+    </div>
+    <div class="status"><span id="count">0 events</span><span id="updated"></span><span id="error"></span></div>
+    <section class="how">
+      <strong>Reading the trust chain.</strong> One outbound call logs, in order, <code>catalog_fetched</code> → <code>catalog_signature_verified</code> → <code>manifest_verified</code> (or <code>manifest_unverified</code> under the integrity policy) → <code>card_digest_verified</code> → <code>card_signature_verified</code> → <code>peer_verified</code>, then the A2A SDK request and response. A refusal shows the failing step and its code (for example <code>card_digest_mismatch</code>, <code>untrusted_guarantor</code>, <code>caller_key_mismatch</code>). "Run the lab" verifies every scenario catalog once and shows its trace here.
+    </section>
+  </main>
+  <footer><span>Retention is short by design: this is a live tail.</span><a href="/">Calendar</a></footer>
+</div>
+<script type="module">
+const API = 'https://api.calendar.aithos.world';
+const rows = document.getElementById('rows');
+const traceInput = document.getElementById('trace');
+const pauseButton = document.getElementById('pause');
+const labButton = document.getElementById('lab');
+const count = document.getElementById('count');
+const updated = document.getElementById('updated');
+const errorBox = document.getElementById('error');
+const state = { source: '', trace: new URLSearchParams(location.search).get('trace') || '', since: '', events: [], paused: false, timer: null };
+traceInput.value = state.trace;
+const validTrace = (value) => /^[A-Za-z0-9-]{0,64}$/.test(value);
+const hidden = new Set(['timestamp', 'level', 'source', 'target', 'trace_id', 'event', 'message']);
+function escapeHtml(value) { return String(value).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function shorten(key, value) {
+  if (typeof value !== 'string') return escapeHtml(value);
+  if (key === 'card_digest' && value.startsWith('sha256:')) return 'sha256:' + escapeHtml(value.slice(7, 19)) + '…';
+  if (key === 'kid' && value.length > 16) return escapeHtml(value.slice(0, 12)) + '…';
+  if ((key === 'peer' || key === 'issuer') && value.startsWith('urn:air:')) return escapeHtml(value.slice(value.lastIndexOf(':') + 1));
+  if (key === 'guarantor') { try { return escapeHtml(new URL(value).pathname); } catch { return escapeHtml(value); } }
+  return escapeHtml(value);
+}
+function render() {
+  const visible = state.events.filter((e) => (!state.source || e.source === state.source) && (!state.trace || e.trace_id === state.trace));
+  count.textContent = `${visible.length} event${visible.length === 1 ? '' : 's'}`;
+  if (!visible.length) { rows.innerHTML = '<tr><td colspan="5" class="empty">No events yet for this filter.</td></tr>'; return; }
+  rows.innerHTML = visible.slice(-300).map((e) => {
+    const details = Object.entries(e).filter(([k]) => !hidden.has(k)).map(([k, v]) => `<b>${escapeHtml(k)}</b>=<span class="${k === 'code' ? 'code' : ''}">${shorten(k, v)}</span>`).join(' · ');
+    const time = e.timestamp.slice(11, 23);
+    const label = e.event || e.message || '';
+    const trace = e.trace_id ? `<span class="trace" data-trace="${escapeHtml(e.trace_id)}" title="Filter on this trace">${escapeHtml(e.trace_id.slice(0, 8))}…</span>` : '';
+    return `<tr><td>${escapeHtml(time)}</td><td><span class="source ${escapeHtml(e.source)}">${escapeHtml(e.source)}</span></td><td class="level ${escapeHtml(e.level)}">${escapeHtml(label)}</td><td class="fields">${details}</td><td>${trace}</td></tr>`;
+  }).join('');
+  rows.parentElement.parentElement.scrollTop = rows.parentElement.parentElement.scrollHeight;
+}
+async function poll() {
+  if (state.paused) return;
+  const params = new URLSearchParams({ limit: '200' });
+  if (state.since) params.set('since', state.since);
+  if (state.trace && validTrace(state.trace)) params.set('trace', state.trace);
+  try {
+    const response = await fetch(`${API}/logs/events?${params}`, { cache: 'no-store' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const body = await response.json();
+    for (const event of body.events) {
+      if (!state.events.some((known) => known.timestamp === event.timestamp && known.event === event.event && known.message === event.message && known.trace_id === event.trace_id && known.target === event.target)) state.events.push(event);
+    }
+    state.events.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+    if (state.events.length > 2000) state.events.splice(0, state.events.length - 2000);
+    if (body.events.length) state.since = body.events[body.events.length - 1].timestamp;
+    updated.textContent = `updated ${new Date().toLocaleTimeString()}`;
+    errorBox.textContent = '';
+    render();
+  } catch (error) {
+    errorBox.textContent = `Feed unavailable: ${error.message}`;
+  }
+}
+for (const chip of document.querySelectorAll('.chip')) {
+  chip.onclick = () => { for (const other of document.querySelectorAll('.chip')) other.setAttribute('aria-pressed', 'false'); chip.setAttribute('aria-pressed', 'true'); state.source = chip.dataset.source; render(); };
+}
+traceInput.oninput = () => { const value = traceInput.value.trim(); if (!validTrace(value)) return; state.trace = value; state.since = ''; state.events = []; const url = new URL(location); if (value) url.searchParams.set('trace', value); else url.searchParams.delete('trace'); history.replaceState(null, '', url); render(); poll(); };
+pauseButton.onclick = () => { state.paused = !state.paused; pauseButton.setAttribute('aria-pressed', String(state.paused)); pauseButton.textContent = state.paused ? 'Resume' : 'Pause'; if (!state.paused) poll(); };
+rows.addEventListener('click', (event) => { const trace = event.target.closest('[data-trace]'); if (trace) { traceInput.value = trace.dataset.trace; traceInput.dispatchEvent(new Event('input')); } });
+labButton.onclick = async () => {
+  labButton.disabled = true; labButton.textContent = 'Running…';
+  try {
+    const response = await fetch(`${API}/lab/report?policy=guaranteed`, { cache: 'no-store' });
+    const report = await response.json();
+    traceInput.value = report.trace_id; traceInput.dispatchEvent(new Event('input'));
+    errorBox.textContent = report.passed ? 'Lab: every scenario behaved as documented.' : 'Lab: at least one scenario diverged; see the report.';
+  } catch (error) { errorBox.textContent = `Lab unavailable: ${error.message}`; }
+  finally { labButton.disabled = false; labButton.textContent = 'Run the lab'; }
+};
+poll();
+state.timer = setInterval(poll, 3000);
+</script>
+</body>
+</html>

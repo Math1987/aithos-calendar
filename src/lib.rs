@@ -16,6 +16,7 @@ pub mod google_identity;
 pub mod identities;
 pub mod lab;
 pub mod logging;
+pub mod public_logs;
 mod scheduling;
 pub mod storage;
 pub mod trust;
@@ -54,6 +55,8 @@ pub struct Config {
     pub policies: trust::Policies,
     /// Scenario lab keys (successor and impostor guarantor keys).
     pub lab: Arc<lab::Lab>,
+    /// The public log feed (sink + store).
+    pub public_logs: public_logs::PublicLogs,
 }
 
 impl Config {
@@ -77,6 +80,7 @@ impl Config {
             trusted_guarantors: vec![trust.identity().to_owned()],
             policies: trust::Policies::default(),
             lab: Arc::new(lab::Lab::from_env()),
+            public_logs: public_logs::PublicLogs::memory(Arc::new(public_logs::Sink::default())),
             operator: Arc::new(trust::Operator::ephemeral(&base_url)),
             trust,
             store,
@@ -123,6 +127,10 @@ impl Config {
     }
     pub fn with_lab(mut self, lab: Arc<lab::Lab>) -> Self {
         self.lab = lab;
+        self
+    }
+    pub fn with_public_logs(mut self, logs: public_logs::PublicLogs) -> Self {
+        self.public_logs = logs;
         self
     }
     /// The discovery client this configuration implies.
@@ -199,11 +207,19 @@ pub fn build(config: Config) -> Result<Router, lambda_http::Error> {
         store: config.store,
         reader: config.reader,
     }));
+    let feed = Router::new()
+        .route("/logs/events", get(public_logs::events))
+        .with_state(config.public_logs.clone());
     Ok(Router::new()
         .route("/health", get(health))
         .merge(routes)
         .merge(lab_routes)
-        .nest_service("/a2a", protocol))
+        .merge(feed)
+        .nest_service("/a2a", protocol)
+        .layer(middleware::from_fn_with_state(
+            config.public_logs,
+            public_logs::flush_after,
+        )))
 }
 
 async fn health() -> Response {
