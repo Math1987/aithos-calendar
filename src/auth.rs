@@ -259,23 +259,7 @@ async fn callback(
                 binding: String::new(),
             };
             match s.store.create(&account_key, row).await {
-                Ok(true) => {
-                    // Name only, by account id, for meeting titles; the
-                    // e-mail stays with the Google-keyed account row.
-                    let profile = Entry {
-                        value: json!({"name": candidate.name}),
-                        expires: 0,
-                        binding: String::new(),
-                    };
-                    if s.store
-                        .put(&format!("profile:{}", candidate.id), profile)
-                        .await
-                        .is_err()
-                    {
-                        return unavailable();
-                    }
-                    candidate
-                }
+                Ok(true) => candidate,
                 Ok(false) => match s.store.get(&account_key, now()).await {
                     Ok(Some(row)) => match serde_json::from_value(row.value) {
                         Ok(a) => a,
@@ -288,6 +272,21 @@ async fn callback(
         }
         Err(_) => return unavailable(),
     };
+    // Display name by account id, for meeting titles; refreshed at every
+    // login so accounts created earlier get one too and renames propagate.
+    // The e-mail stays with the Google-keyed account row.
+    let profile = Entry {
+        value: json!({"name": identity.name}),
+        expires: 0,
+        binding: String::new(),
+    };
+    if s.store
+        .put(&format!("profile:{}", account.id), profile)
+        .await
+        .is_err()
+    {
+        return unavailable();
+    }
     if attempt.calendar {
         let Some(service) = &s.connected else {
             return failed_login(&s, "calendar_unavailable");
