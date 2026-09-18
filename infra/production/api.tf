@@ -34,6 +34,9 @@ resource "aws_lambda_function" "health" {
       GOOGLE_OAUTH_CLIENT_ID        = "235708078636-686f8i71em5mmsn1b29prrfv4tl8gpt3.apps.googleusercontent.com"
       GOOGLE_OAUTH_REDIRECT_URI     = "https://${local.api_domain}/auth/google/callback"
       GOOGLE_OAUTH_CLIENT_SECRET_ID = "calendar/production/google-oauth-client"
+      # public: any Google account may sign in (the published OAuth app);
+      # allowlist: only GOOGLE_OAUTH_TEST_USERS (the pilot mode, the default).
+      GOOGLE_OAUTH_ACCESS           = "public"
       GOOGLE_OAUTH_TEST_USERS       = "mathieu@aithos.fr,mathieucolla@gmail.com"
       AGENTS_TABLE                  = aws_dynamodb_table.agents.name
       CALENDAR_WEBSITE_URL          = "https://${local.website_domain}"

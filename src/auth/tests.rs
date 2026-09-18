@@ -68,7 +68,7 @@ async fn fixture() -> (Auth, Arc<TestGoogle>, tokio::task::JoinHandle<()>) {
             trust: Arc::new(crate::trust::LocalTrust::ephemeral(base)),
             base: base.into(),
             website: "https://calendar.test".into(),
-            allowed_emails: vec!["test@example.com".into()],
+            access: Access::Allowlist(vec!["test@example.com".into()]),
             connected: None,
         },
         provider,
@@ -339,6 +339,27 @@ async fn denial_and_failed_verification_never_create_a_session() {
         );
     }
     assert!(s.agents.published().await.unwrap().is_empty());
+    server.abort();
+}
+#[tokio::test]
+async fn public_access_admits_any_account_and_the_default_is_the_allowlist() {
+    assert_eq!(
+        Access::parse("", Some("a@example.com, B@example.com")),
+        Access::Allowlist(vec!["a@example.com".into(), "B@example.com".into()])
+    );
+    assert_eq!(Access::parse("bogus", None), Access::Allowlist(vec![]));
+    assert!(!Access::parse("", None).allows("anyone@example.com"));
+    assert!(Access::parse("", Some("x@example.com")).allows("X@EXAMPLE.COM"));
+    assert_eq!(
+        Access::parse(" Public ", Some("x@example.com")),
+        Access::Public
+    );
+
+    let (mut s, _, server) = fixture().await;
+    s.access = Access::Public;
+    let cookie = login(&s, "outside").await;
+    let me = value(call(&s, "/auth/me", "GET", Some(&cookie), None).await).await;
+    assert_eq!(me["email"], "outside@example.com");
     server.abort();
 }
 #[tokio::test]

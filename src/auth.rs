@@ -32,8 +32,48 @@ pub struct Auth {
     pub trust: Arc<dyn crate::trust::TrustProvider>,
     pub base: String,
     pub website: String,
-    pub allowed_emails: Vec<String>,
+    /// Who may sign in (`GOOGLE_OAUTH_ACCESS`).
+    pub access: Access,
     pub connected: Option<Arc<crate::connected::Connected>>,
+}
+/// Sign-in access policy. The allow-list is enforced here, not only by
+/// Google's test-user list, so a basic sign-in cannot bypass the pilot.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Access {
+    /// Any Google account (the published app).
+    Public,
+    /// Only the listed e-mail addresses (case-insensitive).
+    Allowlist(Vec<String>),
+}
+impl Access {
+    /// `GOOGLE_OAUTH_ACCESS=public|allowlist` with `GOOGLE_OAUTH_TEST_USERS`
+    /// as the list; a missing or unknown mode falls back to the allow-list.
+    pub fn from_env() -> Self {
+        let mode = std::env::var("GOOGLE_OAUTH_ACCESS").unwrap_or_default();
+        Self::parse(
+            &mode,
+            std::env::var("GOOGLE_OAUTH_TEST_USERS").ok().as_deref(),
+        )
+    }
+    pub fn parse(mode: &str, list: Option<&str>) -> Self {
+        if mode.trim().eq_ignore_ascii_case("public") {
+            return Self::Public;
+        }
+        Self::Allowlist(
+            list.unwrap_or_default()
+                .split(',')
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .map(str::to_owned)
+                .collect(),
+        )
+    }
+    pub fn allows(&self, email: &str) -> bool {
+        match self {
+            Self::Public => true,
+            Self::Allowlist(list) => list.iter().any(|e| e.eq_ignore_ascii_case(email)),
+        }
+    }
 }
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct Account {
@@ -221,12 +261,9 @@ async fn callback(
         Ok(id) if !id.sub.is_empty() && id.sub.len() <= 255 => id,
         _ => return failed_login(&s, "google_login_failed"),
     };
-    // Basic Google sign-in can bypass Google's test-user restriction. Enforce the pilot here.
-    if !s
-        .allowed_emails
-        .iter()
-        .any(|email| email.eq_ignore_ascii_case(&identity.email))
-    {
+    // Basic Google sign-in can bypass Google's test-user restriction; the
+    // allow-list mode enforces the pilot here.
+    if !s.access.allows(&identity.email) {
         return failed_login(&s, "test_account_required");
     }
     let account_key = key("google", &identity.sub);

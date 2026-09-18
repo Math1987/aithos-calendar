@@ -169,10 +169,7 @@ async fn main() -> Result<(), Error> {
             trust,
             base: base_url.clone(),
             website,
-            allowed_emails: std::env::var("GOOGLE_OAUTH_TEST_USERS")?
-                .split(',')
-                .map(|v| v.trim().to_owned())
-                .collect(),
+            access: calendar::auth::Access::from_env(),
         };
         let app = app
             .merge(calendar::auth::router(auth.clone()))
