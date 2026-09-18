@@ -96,18 +96,22 @@ impl Connected {
             .create(&key, row)
             .await
             .map_err(|_| "storage_unavailable")?;
-        let result = self
-            .directory
-            .account_call(
+        // The span gives the outbound trust and SDK events the same trace as
+        // the peer's inbound handling, so `/logs?trace=` shows both sides.
+        let span = tracing::info_span!("connected_call", trace_id = %trace_id, tenant = %caller);
+        let result = tracing::Instrument::instrument(
+            self.directory.account_call(
                 &self.directory.publisher().urn(host),
                 caller,
                 &token,
                 data,
                 &trace_id,
                 policy,
-            )
-            .await
-            .map_err(|e| e.code());
+            ),
+            span,
+        )
+        .await
+        .map_err(|e| e.code());
         let _ = self.store.delete(&key).await;
         result
     }
