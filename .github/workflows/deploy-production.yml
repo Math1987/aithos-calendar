@@ -79,8 +79,13 @@ jobs:
       - name: Run the scenario lab against production
         working-directory: .
         run: |
-          curl --fail --silent --show-error --max-time 60 \
-            "https://api.calendar.aithos.world/lab/report?policy=guaranteed" > lab-report.json
+          STATUS=$(curl --silent --show-error --max-time 60 --output lab-report.json --write-out '%{http_code}' \
+            "https://api.calendar.aithos.world/lab/report?policy=guaranteed")
+          if [ "$STATUS" = "409" ]; then
+            echo "::notice::Scenario lab skipped: no published agent yet (sign in or register a booking page, then GET /lab/report)"
+            exit 0
+          fi
+          [ "$STATUS" = "200" ] || { echo "lab report returned HTTP $STATUS"; cat lab-report.json; exit 1; }
           python3 -c 'import json; r=json.load(open("lab-report.json")); print(json.dumps(r, indent=1)); assert r["passed"], "lab scenario diverged"'
           TRACE=$(python3 -c 'import json; print(json.load(open("lab-report.json"))["trace_id"])')
           curl --fail --silent --show-error --max-time 30 "https://api.calendar.aithos.world/logs/events?trace=$TRACE&limit=5" \

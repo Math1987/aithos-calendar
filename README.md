@@ -95,6 +95,9 @@ rotation, revoked-but-signed agent, mirror; plus unsigned, signed,
 unguaranteed and forged callers) and reports the outcome against the
 documented expectation. Each scenario catalog is a plain URL you can point
 your own client at: `$API/lab/<scenario>/.well-known/ai-catalog.json`.
+The scenarios are derived from the real published agents, so the lab
+answers `409 {"error":"no_published_agent"}` on a deployment nobody has
+signed in to yet (the caller cases need two agents).
 
 ## Run it locally
 

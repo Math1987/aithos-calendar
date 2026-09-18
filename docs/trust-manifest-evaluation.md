@@ -164,3 +164,6 @@ cargo test --locked --test lab --test public_logs
 Against production, replace the origin with `https://api.calendar.aithos.world`
 and add `--trusted-guarantor https://api.calendar.aithos.world/trust-provider/.well-known/jwks.json`
 to the Python verifier. The live feed is at `https://calendar.aithos.world/logs`.
+The production lab derives its scenarios from the agents people have
+actually published; until at least one exists it answers
+`409 {"error":"no_published_agent"}`, and the caller cases need two.

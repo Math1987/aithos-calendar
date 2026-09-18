@@ -450,6 +450,13 @@ pub async fn report(State(state): State<LabState>, Query(query): Query<ReportQue
             Json(report),
         )
             .into_response(),
+        // A fresh deployment has no published agent until someone signs in
+        // or registers a booking page: the scenarios have nothing to derive.
+        Ok(Err(StatusCode::CONFLICT)) => (
+            StatusCode::CONFLICT,
+            Json(json!({"error":"no_published_agent"})),
+        )
+            .into_response(),
         Ok(Err(status)) => status.into_response(),
         Err(_) => StatusCode::GATEWAY_TIMEOUT.into_response(),
     }
