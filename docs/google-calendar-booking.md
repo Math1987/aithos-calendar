@@ -57,9 +57,11 @@ the call. A tenant or public AgentCard alone grants no Calendar access. The SDK
 passes the actual HTTP authorization header separately from message metadata.
 Browser writes require a session and the exact website Origin.
 
-Account cards are version `0.6.0`. Existing cards are upgraded with the original
-signing key and URL using the operator-only `upgrade_account_cards` example.
-The runtime cannot read recovery keys. Public greetings remain available.
+Account cards are version `0.6.0`, signed by the agent's own key and served
+from this deployment with a guarantor-signed manifest carrying the
+`account-verified` attestation (`docs/trust-layer.md`). The runtime reads an
+agent's signing key only to sign its outgoing A2A requests. Public greetings
+remain available.
 
 ### Pinned SDK compatibility
 
@@ -67,7 +69,7 @@ The pinned Rust SDK serializes security requirements as OpenAPI maps; A2A 1.0
 canonical wire JSON uses `schemes` and `StringList`. It also expects an explicit
 empty `list` while canonical JSON omits default fields. Signing normalizes to
 canonical A2A JSON; discovery adapts the in-memory client view before SDK parsing.
-Signed bytes are never rewritten in the registry. A regression test uses signed
+Signed bytes are never rewritten after publication. A regression test uses signed
 canonical cards through the real SDK. Other clients with the same SDK limitation
 may need this adapter until an upstream fix; this is not an OAuth workaround.
 
@@ -120,19 +122,20 @@ access rejection, cards and health without accessing or booking real calendars.
 
 ## Deployment
 
-Bootstrap creates the dedicated KMS key, alias and scoped runtime policy. CI then
-builds the Lambda and deploys the three `/calendar/*` POST routes, environment,
-and website together. After deployment migrate the old account cards:
+Bootstrap creates the dedicated KMS keys (Google token encryption, operator
+and guarantor signing), aliases and scoped runtime policies. CI then builds
+the Lambda and deploys the `/calendar/*` POST routes, environment, and
+website together. Accounts created before the trust layer are not migrated:
+the agents table is purged and each person signs in again to obtain a
+locally signed card (decision recorded in the archive handoff).
 
-```sh
-AWS_REGION=eu-west-3 python3 scripts/with-env.py cargo run --locked \
-  --example upgrade_account_cards -- check calendar-production-agents \
-  https://api.calendar.aithos.world https://registry.aithos.world
-# Review the identities, then use apply in place of check.
-```
-
-A registry cache mismatch may require repeating this migration; identity and
-signed card bytes are preserved.
+The meeting created on the host's calendar is titled `"<Host> / <Guest>"`
+from the Google sign-in names (stored by account id at first login), falling
+back to the local part of the connected e-mail and then to `Host`/`Guest`;
+names are trimmed, stripped of control characters and bounded to 64
+characters, and never appear in logs. The event carries the private property
+`a2aBookingId`; reconciliation uses the deterministic event id, not the
+property.
 
 ## References
 
@@ -151,10 +154,9 @@ signed card bytes are preserved.
 - Bootstrap added exactly the KMS key, alias and runtime policy. IAM simulation
   allows encryption/decryption with the Calendar/account context and denies
   both operations without it.
-- The two existing account identities were upgraded to card version `0.6.0`,
-  preserving their signing identities and share/registry URLs. Registry and API
-  card bytes match. Both reject anonymous availability requests. Registry cache
-  propagation took up to its advertised 60-second TTL.
+- The two existing account identities were upgraded to card version `0.6.0`
+  (a step that predates the trust layer; those records are purged before the
+  trust layer is deployed). Both reject anonymous availability requests.
 - Browser preview verified proposal, explicit confirmation, success and a host
   without Calendar authorization. The published account page was reloaded and
   checked separately.

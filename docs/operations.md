@@ -2,11 +2,12 @@
 
 ## Scope
 
-The service exposes health, persistent public page agents, real A2A availability
-comparison, and a minimal browser flow. DynamoDB stores signed identities; Aithos
-publishes the cards. Gate 5 and the two existing page-card upgrades are deployed.
-Anakin remains an operator-only transport; the website does not book. See the
-[live browser guide](live-browser-test.md) and [public onboarding](public-onboarding.md).
+The service exposes health, a Level 3 AI Catalog with locally signed cards
+and key sets, real A2A availability comparison, connected-account booking, a
+scenario lab and a public log feed (`docs/trust-layer.md`, `docs/logging.md`).
+DynamoDB stores signed identities and their keys; nothing is published to an
+external registry. Anakin remains an operator-only transport for public
+booking pages. Earlier gates are described in the [archive](archive/README.md).
 
 - Repository: https://github.com/Math1987/aithos-calendar (public).
 - AWS: account `128066560720`, region `eu-west-3` (Paris).
@@ -76,7 +77,7 @@ Ubuntu 24.04 installs musl-tools and compiles `x86_64-unknown-linux-musl` with
 `cargo build --release --locked`. It copies the executable to `.build/bootstrap`.
 Terraform archives it with mode 0755 into ignored `infra/production/health.zip`,
 tracks its hash and manages the HTML object. No container, Cargo Lambda install,
-artifact bucket or separate upload service is required. See [Rust migration](rust-migration.md).
+artifact bucket or separate upload service is required. See [Rust migration](archive/rust-migration.md).
 
 Inspect Terraform changes locally without deploying, **after producing the same
 Linux executable** at `.build/bootstrap`. A macOS native build cannot run on Lambda:
@@ -168,9 +169,13 @@ route, integration, stage and function updates do not require that change.
 The shared Lambda now makes outbound HTTPS calls for catalog, card and A2A
 availability discovery. Lambda timeout is 15 seconds; HTTP API integration timeout
 is 20 seconds. No IAM expansion or new resource is required. `CATALOG_URL` is
-configured in `infra/production/api.tf`; update that environment value through
-Terraform to use the future registry. Keep concurrent invocations available so a
-coordinator can await the recipient invocation. See [gate 3](agent-collaboration.md)
+configured in `infra/production/api.tf`, together with the trust-layer
+variables (`OPERATOR_KMS_KEY_ID`, `TRUST_KMS_KEY_ID`, `TRUSTED_GUARANTORS`,
+`TRUST_POLICY_*`, `LAB_KEY_SEED`, `PUBLIC_LOGS_TABLE`; see
+`docs/trust-layer.md`). The two signing keys live in the bootstrap stack
+(`infra/bootstrap/trust.tf`) and must be applied by an operator before the
+first production deployment of the trust layer. Keep concurrent invocations available so a
+coordinator can await the recipient invocation. See [gate 3](archive/agent-collaboration.md)
 for limits, the JSON response contract and trace-based verification.
 
 ## Dynamic identity operations
@@ -179,7 +184,7 @@ Gate 4 adds `calendar-production-agents` (DynamoDB on-demand, SSE, PITR and dele
 protection). Bootstrap grants only the table-specific deployment and runtime
 permissions. Public onboarding replaces the initial IAM administration API. Lambda reads project only
 record/publication attributes; recovery signing keys are never returned by the API.
-See [public onboarding](public-onboarding.md) for CLI commands and publication retries.
+See [public onboarding](archive/public-onboarding.md) for CLI commands and publication retries.
 An uncertain creation is retried by submitting the same booking-page URL.
 
 ### Public onboarding supersedes IAM administration
@@ -188,7 +193,7 @@ The current route is anonymous `POST /agents` with `booking_page_url`. The three
 `/admin/agents/...` routes are removed. `CALENDAR_WEBSITE_URL` replaces the former
 `ADMIN_AWS_ACCOUNT_ID` environment setting. DynamoDB IAM policies are unchanged.
 Repost the same URL to resume a pending publication; never regenerate a tenant.
-See [public onboarding](public-onboarding.md) for current commands.
+See [public onboarding](archive/public-onboarding.md) for current commands.
 
 ## Live availability deployment
 
@@ -196,9 +201,9 @@ Deployed commit `e83e390` via [Actions run 35180158681](https://github.com/Math1
 Lambda timeout is now 25 seconds and API integration timeout is 29 seconds.
 The metadata route is `GET /agents/{tenant}/schedule`. The two page agents use
 card version 0.4.0; legacy fixture-only agents remain mocked and cannot supply
-availability to live agents. No runtime permission to read signing keys was added.
-Registry readbacks were cached for up to 60 seconds during upgrade; replaying the
-same migration completed both updates without changing IDs or creating agents.
+availability to live agents. (Historical note: this predates the trust
+layer, which reads signing keys to sign outgoing requests and no longer uses
+an external registry.)
 
 ## Booking pilot deployment
 
@@ -206,5 +211,5 @@ Commit `ad291bc` adds `calendar-production-bookings`, POST `/bookings`, GET
 `/bookings/{id}`, and the Secrets Manager reference. Lambda timeout is 28 seconds;
 API timeout remains 29 seconds. Bootstrap permissions and the secret were prepared
 separately. The real booking action is triggered only by the browser's **Book**
-button, after an availability proposal. See [booking pilot](booking-browser.md)
+button, after an availability proposal. See [booking pilot](archive/booking-browser.md)
 for duplicate guards, unknown outcomes, and the first confirmation-validation step.

@@ -89,7 +89,7 @@ placeholder legal URLs.
 The Google-side configuration was verified by the setup agent. Local credential
 presence, the client ID, callback URI, file permissions and Git exclusion were
 verified independently. A real login round trip remains a manual acceptance
-check after backend deployment. See [the sign-in gate](google-sign-in.md).
+check after backend deployment. See [the sign-in gate](archive/google-sign-in.md).
 
 ## Google references
 

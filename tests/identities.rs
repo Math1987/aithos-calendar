@@ -243,7 +243,8 @@ async fn public_creation_publishes_a_signed_card_and_a_trusted_catalog_entry() {
     assert_eq!(catalog(&s).await["entries"].as_array().unwrap().len(), 1);
     assert!(published.get("signing_key").is_none());
     assert!(published.get("owner").is_none());
-    assert!(!published.to_string().contains("aithos"));
+    // Nothing in the public view names the former external registry.
+    assert!(!published.to_string().contains("registry"));
 }
 
 #[tokio::test]

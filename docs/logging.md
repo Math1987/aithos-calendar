@@ -1,6 +1,9 @@
-# Application and A2A SDK logs
+# Application, trust-layer and A2A SDK logs
 
-Status: deployed and verified in production on September 16, 2026.
+Two sinks receive the same `tracing` events: CloudWatch (complete, private)
+and the **public feed** (allow-listed, live, at `/logs`). The public feed was
+added with the trust layer on September 18, 2026; the CloudWatch pipeline
+was verified in production on September 16, 2026.
 
 ## Format and sources
 
@@ -11,8 +14,10 @@ Each line is one JSON object with `timestamp`, `level` and `target`.
 | `target` | Source | Typical contents |
 | --- | --- | --- |
 | `calendar::a2a` | Calendar application | `operation_received`, `negotiation_completed`, outcome status |
-| `calendar::identities` / `calendar::registry` / `calendar::storage` | Calendar identity lifecycle | Creation, publication and provider failures |
-| `calendar::discovery` | Calendar application | `peer_call`, caller, peer and recipient tenant |
+| `calendar::identities` / `calendar::storage` | Calendar identity lifecycle | Creation, reuse and storage failures |
+| `calendar::discovery` | Calendar application | `peer_call`, `connected_peer_call`, caller, peer and recipient tenant |
+| `calendar::trust` | Trust layer (`docs/trust-layer.md`) | `catalog_fetched`, `catalog_signature_verified`, `manifest_verified`, `card_digest_verified`, `card_signature_verified`, `peer_verified`, `caller_verified`, and their `*_rejected` counterparts with `code`; `policy`; lab `scenario` |
+| `calendar::catalog` | AI Catalog server | `catalog_served`, `card_served`, `lab_catalog_served` |
 | `a2a_client::middleware` | A2A SDK client | `A2A client request`, `A2A client response`, `A2A client error` |
 | `a2a_server::middleware` | A2A SDK server | `A2A server request`, `A2A server response`, `A2A server error` |
 
@@ -61,6 +66,45 @@ No bodies, calendar intervals or authorization headers are added to these logs.
 SDK errors include their error description. AWS invocation reports remain separate.
 A tenant or trace ID is a correlation value, not proof of caller identity.
 
+## Public feed (`/logs`)
+
+CloudWatch is never exposed. `src/public_logs.rs` installs a second
+`tracing` layer that copies an event only when **both** its target is on the
+source list (`a2a_client::*` and `a2a_server::*` → `a2a-sdk`,
+`calendar::catalog` → `ai-catalog`, `calendar::trust` → `trust`, other
+`calendar::*` → `app`) **and** its `event` name (or SDK `message`) is on the
+event list, keeping only the fields on the field list: `event`, `message`,
+`method`, `status`, `code`, `operation`, `peer`, `recipient_tenant`,
+`caller`, `policy`, `scenario`, `kid`, `card_digest`, `guarantor`, `issuer`,
+`entries`, `bytes`, `mock`, `duration_ms`, `role`, plus `tenant` and
+`trace_id` from the enclosing span. E-mails, names, meeting titles, tokens,
+request bodies, calendar intervals and headers are on no list and cannot
+reach the feed; `tests/public_logs.rs` runs the real binary with sentinel
+values in the `Authorization` header and in message metadata and checks
+they never appear, while every step of the exchange does. `tenant` is shown
+as-is: it is an opaque identifier already public in catalog URNs.
+
+Events are buffered per process and flushed at the end of every request and
+worker invocation (Lambda freezes the process after the response). The store
+is DynamoDB `calendar-production-public-logs` with a **24-hour TTL**
+(`PUBLIC_LOGS_TTL_SECONDS`), partitioned by UTC hour with a `trace-index`
+GSI; local runs use memory. The feed is a live tail, not an archive.
+
+`GET /logs/events?since=<rfc3339>&trace=<id>&source=<a2a-sdk|ai-catalog|trust|app>&limit=<1..200>`
+returns `{events, now, sources}` ascending by timestamp
+(`Cache-Control: public, max-age=2`). Without `trace`, only the current and
+previous hour buckets are read. `web/logs.html` (served at
+`https://calendar.aithos.world/logs`) polls it every three seconds, filters
+by source and trace, and can run the scenario lab and follow its trace.
+
+Reading one outbound call on the feed, in order: `operation_received` →
+`catalog_fetched` → `catalog_signature_verified` → `manifest_verified` (or
+`manifest_unverified` under the `integrity` policy) → `card_digest_verified`
+→ `card_signature_verified` → `peer_verified` → `peer_call` → the A2A SDK
+client request/response → `negotiation_completed`. On the called side:
+the SDK server request/response, `operation_received` and, for real data,
+`caller_verified`. A refusal shows the failing step with its `code`.
+
 ## Levels
 
 Default filter:
@@ -91,8 +135,8 @@ python3 scripts/with-env.py aws logs tail \
   --since 10m --format short --filter-pattern '"trace_id"' --follow
 ```
 
-In another terminal, run the host → guest CLI request from the
-[public onboarding guide](public-onboarding.md). Stop the log tail with Ctrl+C.
+In another terminal, send a `find_common_slot` request with `a2acli` or
+`scripts/smoke-a2a.py`. Stop the log tail with Ctrl+C.
 
 For **SDK events only**, replace the filter argument with:
 
@@ -103,7 +147,7 @@ For **SDK events only**, replace the filter argument with:
 For **application events only**:
 
 ```sh
---filter-pattern '{ $.target = "calendar::a2a" || $.target = "calendar::discovery" || $.target = "calendar::identities" || $.target = "calendar::registry" || $.target = "calendar::storage" }'
+--filter-pattern '{ $.target = "calendar::a2a" || $.target = "calendar::discovery" || $.target = "calendar::identities" || $.target = "calendar::trust" || $.target = "calendar::catalog" || $.target = "calendar::storage" }'
 ```
 
 For **one exchange**, replace it with the returned trace ID in double quotes:
@@ -125,10 +169,10 @@ fields @timestamp, level, target, span.tenant, message, event, status, code, spa
 
 `tests/logging.rs` launches the real binary, performs Alice → Bob and Bob → Alice
 concurrently and checks the emitted JSON. It verifies application/client/server
-sources, matching trace IDs, correct caller/recipient tenants, a server warning
-for an unknown tenant, and that sentinel body/header values are absent. The
-logging gate ran 15 tests. Public onboarding now brings the deterministic suite to 21 tests; the separate
-read-only Google provider check is opt-in.
+sources, matching trace IDs, correct caller/recipient tenants, the trust-chain
+events under `calendar::trust`, a server warning for an unknown tenant, and
+that sentinel body/header values are absent. `tests/public_logs.rs` does the
+same for the public feed, including a lab run and its `scenario` field.
 
 Production acceptance on **September 16, 2026**:
 
