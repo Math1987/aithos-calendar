@@ -74,7 +74,10 @@ def main(catalog_url):
         assert response["result"]["message"]["parts"][0]["text"] == f"Hello from {card['name']}", response
         if card["version"] in ("0.5.0", "0.6.0"):
             response = send(interface, tenant, {"operation":"get_availability"})
-            assert ("error" in response and "result" not in response) or data(response)["code"] == "a2a_authorization_required"
+            # Account-linked agents refuse anonymous callers before the capability check.
+            refused = ("error" in response and "result" not in response) or data(response)["code"] in (
+                "caller_signature_missing", "a2a_authorization_required")
+            assert refused, response
             print("PASS account-linked greeting; anonymous Calendar access rejected")
             continue
         availability = data(send(interface, tenant, {"operation": "get_availability"}))
