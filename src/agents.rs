@@ -12,6 +12,14 @@ pub struct Agent {
     pub slots: Vec<crate::scheduling::Slot>,
 }
 
+/// A mock slot on the fixture day, `HH:MM` UTC bounds.
+pub fn slot(start: &str, end: &str) -> crate::scheduling::Slot {
+    crate::scheduling::Slot {
+        start: format!("2030-01-15T{start}:00Z").parse().unwrap(),
+        end: format!("2030-01-15T{end}:00Z").parse().unwrap(),
+    }
+}
+
 /// Only local/test constructors use these fixtures; production starts empty.
 pub fn fixtures() -> Vec<Agent> {
     [
@@ -26,19 +34,43 @@ pub fn fixtures() -> Vec<Agent> {
         name: name.into(),
         slots: ranges
             .into_iter()
-            .map(|(start, end)| crate::scheduling::Slot {
-                start: format!("2030-01-15T{start}:00Z").parse().unwrap(),
-                end: format!("2030-01-15T{end}:00Z").parse().unwrap(),
-            })
+            .map(|(start, end)| slot(start, end))
             .collect(),
     })
     .collect()
 }
 
-impl Agent {
-    pub fn identifier(&self) -> String {
-        format!("urn:aithos:calendar:agent:{}", self.id)
+/// The publisher segment of every `urn:air:{publisher}:agent:{id}` identifier:
+/// the host of the API base URL, which is also the domain of the operator
+/// identity (`https://<host>/.well-known/jwks.json`). AI Catalog requires
+/// the two to align, so both derive from the same configuration value.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Publisher(String);
+
+impl Publisher {
+    pub fn from_base(base_url: &str) -> Self {
+        let host = reqwest::Url::parse(base_url)
+            .ok()
+            .and_then(|u| u.host_str().map(str::to_ascii_lowercase))
+            .unwrap_or_else(|| "localhost".into());
+        Self(host)
     }
+    pub fn domain(&self) -> &str {
+        &self.0
+    }
+    pub fn urn(&self, id: &str) -> String {
+        format!("urn:air:{}:agent:{id}", self.0)
+    }
+    /// The tenant named by one of this publisher's identifiers.
+    pub fn tenant<'a>(&self, urn: &'a str) -> Option<&'a str> {
+        urn.strip_prefix("urn:air:")?
+            .strip_prefix(self.0.as_str())?
+            .strip_prefix(":agent:")
+            .filter(|id| crate::valid_tenant(id))
+    }
+}
+
+impl Agent {
     pub fn availability(&self) -> Vec<crate::scheduling::Slot> {
         self.slots.clone()
     }
@@ -94,5 +126,45 @@ impl Agent {
                 "tags": ["mock", "scheduling"], "inputModes": ["application/json"]
             }]
         })).expect("static agent fixture must match SDK schema")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Publisher;
+    #[test]
+    fn identifiers_follow_the_urn_air_scheme_of_the_api_host() {
+        let publisher = Publisher::from_base("https://API.calendar.example/");
+        assert_eq!(publisher.domain(), "api.calendar.example");
+        assert_eq!(
+            publisher.urn("abc"),
+            "urn:air:api.calendar.example:agent:abc"
+        );
+        assert_eq!(
+            publisher.tenant("urn:air:api.calendar.example:agent:abc"),
+            Some("abc")
+        );
+        assert_eq!(publisher.tenant("urn:air:other.example:agent:abc"), None);
+        assert_eq!(
+            publisher.tenant("urn:air:api.calendar.example:agent:bad/id"),
+            None
+        );
+        assert_eq!(
+            publisher.tenant("urn:air:api.calendar.example:agent:"),
+            None
+        );
+        let loopback = Publisher::from_base("http://127.0.0.1:8080");
+        assert_eq!(loopback.urn("x"), "urn:air:127.0.0.1:agent:x");
+        assert_eq!(
+            ai_catalog::publisher_domain(&loopback.urn("x")).as_deref(),
+            Some("127.0.0.1")
+        );
+        assert_eq!(
+            ai_catalog::identity_binds_to_entry(
+                &publisher.urn("abc"),
+                "https://api.calendar.example/.well-known/jwks.json"
+            ),
+            Some(true)
+        );
     }
 }

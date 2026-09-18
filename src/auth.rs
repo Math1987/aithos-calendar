@@ -29,7 +29,7 @@ pub struct Auth {
     pub store: Arc<dyn AuthStore>,
     pub agents: Arc<dyn AgentStore>,
     pub provider: Provider,
-    pub registry: crate::registry::Registry,
+    pub trust: Arc<dyn crate::trust::TrustProvider>,
     pub base: String,
     pub website: String,
     pub allowed_emails: Vec<String>,
@@ -60,7 +60,7 @@ pub(crate) fn now() -> i64 {
 pub(crate) fn random() -> String {
     let mut bytes = [0; 32];
     OsRng.fill_bytes(&mut bytes);
-    a2a_card::canonical::b64url(&bytes)
+    crate::trust::jose::b64url(&bytes)
 }
 fn hash(raw: &str) -> String {
     format!("{:x}", Sha256::digest(raw.as_bytes()))
@@ -396,11 +396,21 @@ async fn agent(State(s): State<Arc<Auth>>, headers: HeaderMap) -> Response {
                 live: false,
                 slots: vec![],
             };
-            let (record, key) = match s.registry.prepare(agent, None, &s.base) {
+            let (record, key) = match crate::identities::issue(
+                s.trust.as_ref(),
+                agent,
+                None,
+                &s.base,
+            )
+            .await
+            {
                 Ok(r) => r,
-                Err(_) => return unavailable(),
+                Err(error) => {
+                    tracing::warn!(target: "calendar::trust", event = "card_signing_failed", tenant = %account.id, code = %error);
+                    return unavailable();
+                }
             };
-            match s.agents.create(&record, &key).await {
+            match s.agents.create(&record, &key.encode()).await {
                 Ok(true) => record,
                 Ok(false) => match s.agents.get(&account.id).await {
                     Ok(Some(r)) => r,
@@ -415,20 +425,14 @@ async fn agent(State(s): State<Arc<Auth>>, headers: HeaderMap) -> Response {
         return error(StatusCode::CONFLICT, "agent_identity_conflict");
     }
     if !record.published {
-        match s.registry.publish(&record).await {
-            Ok(()) => {
-                if s.agents.publish(&record.agent.id).await.is_err() {
-                    return unavailable();
-                }
-                record.published = true;
-            }
-            Err(code) => {
-                tracing::warn!(event="account_publication_pending",tenant=%record.agent.id,code)
-            }
+        // Records created before publication became immediate.
+        if s.agents.publish(&record.agent.id).await.is_err() {
+            return unavailable();
         }
+        record.published = true;
     }
     (if record.published { StatusCode::OK } else { StatusCode::ACCEPTED }, Json(json!({
-        "id":record.agent.id, "identifier":record.agent.identifier(), "agent_card_url":record.card_url,
+        "id":record.agent.id, "identifier":crate::agents::Publisher::from_base(&s.base).urn(&record.agent.id), "agent_card_url":record.card_url,
         "share_url":format!("{}/book/{}",s.website,record.agent.id),
         "publication_status":if record.published {"published"} else {"pending"}, "calendar_connected":false,
     }))).into_response()

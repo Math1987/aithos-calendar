@@ -16,6 +16,7 @@ async fn request(path: &str, payload: Option<Value>) -> (StatusCode, Value) {
         None => builder.body(Body::empty()).unwrap(),
     };
     let response = calendar::app("https://calendar.test")
+        .await
         .oneshot(req)
         .await
         .unwrap();

@@ -1,13 +1,35 @@
-use crate::scheduling::Availability;
+//! Discovery of a peer agent through the AI Catalog, with the trust chain
+//! verified before any A2A call:
+//!
+//! 1. fetch the catalog and verify its signature under the operator key set
+//!    named by `host.identifier`, which must be a pinned trusted identity;
+//! 2. select the entry, verify its `trustManifest` (signature by a pinned
+//!    identity, `subject` restating the entry, validity window);
+//! 3. fetch the card and check `sha256(bytes) == subject.digest`;
+//! 4. verify the card's own JWS with the key set at its `jku`, which must be
+//!    the agent's key location on the agent origin;
+//! 5. only then hand the card to the A2A SDK.
+//!
+//! The origin allow-list that predates the trust chain is kept as a network
+//! policy (which hosts this deployment will talk to), not as a source of
+//! trust. Every fetch is HTTPS (loopback HTTP in tests), follows no
+//! redirect, and is bounded in time and size.
+use crate::{
+    agents::Publisher,
+    scheduling::Availability,
+    trust::{card, jose, verify},
+};
 use a2a::{AgentCard, Message, Part, PartContent, Role, SendMessageRequest, SendMessageResponse};
 use a2a_client::{A2AClientFactory, jsonrpc::JsonRpcTransportFactory};
-use ai_catalog::AiCatalog;
 use reqwest::{Client, Url};
-use serde::de::DeserializeOwned;
-use serde_json::json;
-use std::{sync::Arc, time::Duration};
+use serde_json::{Value, json};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PeerError {
     DiscoveryUnavailable,
     NotFound,
@@ -15,6 +37,14 @@ pub enum PeerError {
     Unavailable,
     InvalidResponse,
     Timeout,
+    /// The catalog lists the same identifier and version twice.
+    DuplicateEntry,
+    /// The catalog names an operator this client does not trust.
+    UntrustedOperator,
+    /// A verification step of the trust chain failed.
+    Trust(verify::VerifyError),
+    /// A key set could not be fetched or parsed.
+    KeysUnavailable,
 }
 
 impl PeerError {
@@ -26,6 +56,10 @@ impl PeerError {
             Self::Unavailable => "peer_unavailable",
             Self::InvalidResponse => "invalid_peer_response",
             Self::Timeout => "timeout",
+            Self::DuplicateEntry => "catalog_duplicate_entry",
+            Self::UntrustedOperator => "untrusted_operator",
+            Self::Trust(error) => error.code(),
+            Self::KeysUnavailable => "keys_unavailable",
         }
     }
     pub fn message(self) -> &'static str {
@@ -36,8 +70,27 @@ impl PeerError {
             Self::Unavailable => "The peer could not be reached through A2A",
             Self::InvalidResponse => "The peer did not return valid availability",
             Self::Timeout => "The peer exchange exceeded its time limit",
+            Self::DuplicateEntry => {
+                "The catalog lists the peer more than once for the same version"
+            }
+            Self::UntrustedOperator => "The catalog operator is not a trusted identity",
+            Self::Trust(_) => "The peer failed trust verification; no call was made",
+            Self::KeysUnavailable => "A verification key set could not be loaded",
         }
     }
+}
+
+impl From<verify::VerifyError> for PeerError {
+    fn from(error: verify::VerifyError) -> Self {
+        Self::Trust(error)
+    }
+}
+
+/// A card that passed every step of the chain.
+pub struct VerifiedPeer {
+    pub card: AgentCard,
+    pub tenant: String,
+    pub card_digest: String,
 }
 
 pub struct PeerDirectory {
@@ -45,8 +98,13 @@ pub struct PeerDirectory {
     live_http: Client,
     catalog_url: Url,
     agent_origin: Url,
-    registry_origin: Option<Url>,
+    publisher: Publisher,
+    trusted_identities: Vec<String>,
+    keys: Mutex<HashMap<String, (Instant, Arc<jose::Jwks>)>>,
 }
+
+const KEYS_TTL: Duration = Duration::from_secs(300);
+const MAX_DOCUMENT: usize = 64 * 1024;
 
 fn network_error(error: reqwest::Error, otherwise: PeerError) -> PeerError {
     if error.is_timeout() {
@@ -56,25 +114,39 @@ fn network_error(error: reqwest::Error, otherwise: PeerError) -> PeerError {
     }
 }
 
+fn loopback(url: &Url) -> bool {
+    matches!(url.host_str(), Some("127.0.0.1" | "localhost" | "[::1]"))
+}
+
+fn safe_url(url: &Url) -> bool {
+    (url.scheme() == "https" || (url.scheme() == "http" && loopback(url)))
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.fragment().is_none()
+}
+
 impl PeerDirectory {
-    pub fn new_with_registry(
+    pub fn new(
         public_url: &str,
         catalog_url: &str,
-        registry_origin: Option<&str>,
+        trusted_identities: Vec<String>,
     ) -> Result<Self, lambda_http::Error> {
         // Explicit provider avoids a platform-dependent TLS default in the SDK.
         let _ = a2a_client::rustls::crypto::aws_lc_rs::default_provider().install_default();
         let agent_origin = Url::parse(public_url)?;
         let catalog_url = Url::parse(catalog_url)?;
         for url in [&agent_origin, &catalog_url] {
-            let local = matches!(url.host_str(), Some("127.0.0.1" | "localhost" | "[::1]"));
-            if !(url.scheme() == "https" || (url.scheme() == "http" && local))
-                || !url.username().is_empty()
-                || url.password().is_some()
-                || url.fragment().is_some()
-            {
+            if !safe_url(url) {
                 return Err("Discovery configuration requires HTTPS (or loopback HTTP), without credentials or fragments".into());
             }
+        }
+        for identity in &trusted_identities {
+            if !Url::parse(identity).is_ok_and(|url| safe_url(&url)) {
+                return Err("Trusted identities must be HTTPS JWK Set URLs".into());
+            }
+        }
+        if trusted_identities.is_empty() {
+            return Err("At least one trusted identity is required".into());
         }
         let http = Client::builder()
             .connect_timeout(Duration::from_secs(2))
@@ -89,35 +161,27 @@ impl PeerDirectory {
                 .build()?,
             http,
             catalog_url,
+            publisher: Publisher::from_base(public_url),
             agent_origin,
-            registry_origin: registry_origin.map(Url::parse).transpose()?,
+            trusted_identities,
+            keys: Mutex::new(HashMap::new()),
         })
     }
 
-    fn trusted_url(&self, value: &str, is_card: bool) -> Result<Url, PeerError> {
+    pub fn publisher(&self) -> &Publisher {
+        &self.publisher
+    }
+
+    /// Network policy: this deployment only talks to its own agent origin.
+    fn trusted_url(&self, value: &str) -> Result<Url, PeerError> {
         let url = Url::parse(value).map_err(|_| PeerError::InvalidCard)?;
-        // Only this deployment's agents are enabled in this gate. The
-        // catalog may move to Aithos independently of the agent-serving origin.
-        if !(url.origin() == self.agent_origin.origin()
-            || (is_card
-                && self
-                    .registry_origin
-                    .as_ref()
-                    .is_some_and(|r| url.origin() == r.origin())))
-            || !url.username().is_empty()
-            || url.password().is_some()
-            || url.fragment().is_some()
-        {
+        if url.origin() != self.agent_origin.origin() || !safe_url(&url) {
             return Err(PeerError::InvalidCard);
         }
         Ok(url)
     }
 
-    async fn fetch<T: DeserializeOwned>(
-        &self,
-        url: Url,
-        failure: PeerError,
-    ) -> Result<T, PeerError> {
+    async fn fetch_bytes(&self, url: Url, failure: PeerError) -> Result<Vec<u8>, PeerError> {
         let mut response = self
             .http
             .get(url)
@@ -133,80 +197,196 @@ impl PeerDirectory {
             .await
             .map_err(|e| network_error(e, failure))?
         {
-            if bytes.len() + chunk.len() > 64 * 1024 {
+            if bytes.len() + chunk.len() > MAX_DOCUMENT {
                 return Err(failure);
             }
             bytes.extend_from_slice(&chunk);
         }
-        serde_json::from_slice(&bytes).map_err(|_| failure)
+        Ok(bytes)
+    }
+
+    /// The key set published at a pinned identity URL, cached briefly.
+    async fn keys_for(&self, identity: &str) -> Result<Arc<jose::Jwks>, PeerError> {
+        if !self.trusted_identities.iter().any(|t| t == identity) {
+            return Err(PeerError::UntrustedOperator);
+        }
+        if let Some((fetched, keys)) = self.keys.lock().ok().and_then(|c| c.get(identity).cloned())
+            && fetched.elapsed() < KEYS_TTL
+        {
+            return Ok(keys);
+        }
+        let url = Url::parse(identity).map_err(|_| PeerError::KeysUnavailable)?;
+        let bytes = self.fetch_bytes(url, PeerError::KeysUnavailable).await?;
+        let document: Value =
+            serde_json::from_slice(&bytes).map_err(|_| PeerError::KeysUnavailable)?;
+        let keys = jose::Jwks::parse(&document).map_err(|_| PeerError::KeysUnavailable)?;
+        if keys.is_empty() {
+            return Err(PeerError::KeysUnavailable);
+        }
+        let keys = Arc::new(keys);
+        if let Ok(mut cache) = self.keys.lock() {
+            cache.insert(identity.to_owned(), (Instant::now(), keys.clone()));
+        }
+        Ok(keys)
+    }
+
+    /// The agent key set at the location this client derives itself.
+    async fn agent_keys(&self, jwks_url: &Url) -> Result<jose::Jwks, PeerError> {
+        let bytes = self
+            .fetch_bytes(jwks_url.clone(), PeerError::KeysUnavailable)
+            .await?;
+        let document: Value =
+            serde_json::from_slice(&bytes).map_err(|_| PeerError::KeysUnavailable)?;
+        jose::Jwks::parse(&document).map_err(|_| PeerError::KeysUnavailable)
+    }
+
+    fn select_entry<'a>(&self, catalog: &'a Value, peer: &str) -> Result<&'a Value, PeerError> {
+        let entries = catalog["entries"]
+            .as_array()
+            .ok_or(PeerError::DiscoveryUnavailable)?;
+        let matching: Vec<&Value> = entries.iter().filter(|e| e["identifier"] == peer).collect();
+        if matching.is_empty() {
+            return Err(PeerError::NotFound);
+        }
+        // Multi-version listings must be unique on (identifier, version);
+        // the newest `updatedAt` wins, then the highest version string.
+        for (i, a) in matching.iter().enumerate() {
+            if matching[..i].iter().any(|b| b["version"] == a["version"]) {
+                return Err(PeerError::DuplicateEntry);
+            }
+        }
+        let entry = matching
+            .into_iter()
+            .max_by(|a, b| {
+                (a["updatedAt"].as_str(), a["version"].as_str())
+                    .cmp(&(b["updatedAt"].as_str(), b["version"].as_str()))
+            })
+            .expect("non-empty");
+        if entry["type"] != crate::trust::manifest::CARD_TYPE {
+            return Err(PeerError::InvalidCard);
+        }
+        Ok(entry)
+    }
+
+    /// Steps 1 to 4. Every outcome is logged with the peer and trace so the
+    /// public log shows which link of the chain held or broke.
+    pub async fn resolve(&self, peer: &str, trace_id: &str) -> Result<VerifiedPeer, PeerError> {
+        let outcome = self.resolve_inner(peer, trace_id).await;
+        match &outcome {
+            Ok(verified) => {
+                tracing::info!(target: "calendar::trust", event = "peer_verified", peer, trace_id, card_digest = %verified.card_digest)
+            }
+            Err(error) => {
+                tracing::warn!(target: "calendar::trust", event = "peer_rejected", peer, trace_id, code = error.code())
+            }
+        }
+        outcome
+    }
+
+    async fn resolve_inner(&self, peer: &str, trace_id: &str) -> Result<VerifiedPeer, PeerError> {
+        let tenant = self
+            .publisher
+            .tenant(peer)
+            .ok_or(PeerError::NotFound)?
+            .to_owned();
+        // 1. Catalog.
+        let bytes = self
+            .fetch_bytes(self.catalog_url.clone(), PeerError::DiscoveryUnavailable)
+            .await?;
+        let catalog: Value =
+            serde_json::from_slice(&bytes).map_err(|_| PeerError::DiscoveryUnavailable)?;
+        tracing::info!(target: "calendar::trust", event = "catalog_fetched", trace_id, bytes = bytes.len(),
+            entries = catalog["entries"].as_array().map_or(0, Vec::len));
+        let operator = catalog["host"]["identifier"]
+            .as_str()
+            .ok_or(PeerError::UntrustedOperator)?;
+        let operator_keys = self.keys_for(operator).await?;
+        verify::verify_catalog(&catalog, &operator_keys).inspect_err(
+            |error| tracing::warn!(target: "calendar::trust", event = "catalog_signature_rejected", trace_id, code = error.code()),
+        )?;
+        tracing::info!(target: "calendar::trust", event = "catalog_signature_verified", trace_id, kid = operator_keys.kids().next());
+        // 2. Entry and manifest.
+        let entry = self.select_entry(&catalog, peer)?;
+        let entry_url = entry["url"].as_str().ok_or(PeerError::InvalidCard)?;
+        let manifest = &entry["trustManifest"];
+        let identity = manifest["identity"].as_str().unwrap_or_default();
+        let guarantor_keys = if manifest.is_null() {
+            operator_keys.clone()
+        } else {
+            self.keys_for(identity).await?
+        };
+        let binding = verify::verify_manifest(
+            manifest,
+            &guarantor_keys,
+            identity,
+            crate::trust::manifest::CARD_TYPE,
+            entry_url,
+            chrono::Utc::now(),
+        )
+        .inspect_err(
+            |error| tracing::warn!(target: "calendar::trust", event = "manifest_rejected", peer, trace_id, code = error.code()),
+        )?;
+        tracing::info!(target: "calendar::trust", event = "manifest_verified", peer, trace_id, card_digest = %binding.digest);
+        // 3. Card bytes.
+        let card_url = self.trusted_url(entry_url)?;
+        let card_bytes = self.fetch_bytes(card_url, PeerError::InvalidCard).await?;
+        verify::verify_card_digest(&card_bytes, &binding.digest).inspect_err(
+            |error| tracing::warn!(target: "calendar::trust", event = "card_digest_rejected", peer, trace_id, code = error.code()),
+        )?;
+        tracing::info!(target: "calendar::trust", event = "card_digest_verified", peer, trace_id, card_digest = %binding.digest);
+        // 4. Card signature.
+        let raw: Value = serde_json::from_slice(&card_bytes).map_err(|_| PeerError::InvalidCard)?;
+        let jwks_url = self.trusted_url(&crate::identities::jwks_url(
+            self.agent_origin.as_str(),
+            &tenant,
+        ))?;
+        let header = verify::card_key_location(&raw, jwks_url.as_str()).inspect_err(
+            |error| tracing::warn!(target: "calendar::trust", event = "card_signature_rejected", peer, trace_id, code = error.code()),
+        )?;
+        let agent_keys = self.agent_keys(&jwks_url).await?;
+        verify::verify_card(&raw, &agent_keys).inspect_err(
+            |error| tracing::warn!(target: "calendar::trust", event = "card_signature_rejected", peer, trace_id, code = error.code()),
+        )?;
+        tracing::info!(target: "calendar::trust", event = "card_signature_verified", peer, trace_id, kid = header.kid());
+        // 5. Only now the SDK view of the card.
+        let mut card = card::sdk_view(raw).map_err(|_| PeerError::InvalidCard)?;
+        // Only JSON-RPC interfaces for this tenant on the agent origin remain;
+        // the SDK picks among them.
+        card.supported_interfaces.retain(|i| {
+            i.protocol_binding == "JSONRPC"
+                && i.tenant.as_deref() == Some(tenant.as_str())
+                && self.trusted_url(&i.url).is_ok()
+        });
+        if card.supported_interfaces.is_empty() {
+            return Err(PeerError::InvalidCard);
+        }
+        Ok(VerifiedPeer {
+            card,
+            tenant,
+            card_digest: binding.digest,
+        })
+    }
+
+    fn client(&self, http: Client) -> A2AClientFactory {
+        A2AClientFactory::builder()
+            .no_defaults()
+            .with_interceptor(Arc::new(a2a_client::middleware::LoggingInterceptor))
+            .register(Arc::new(JsonRpcTransportFactory::new(Some(http))))
+            .build()
     }
 
     pub async fn account_call(
         &self,
         peer: &str,
         token: &str,
-        operation: serde_json::Value,
-    ) -> Result<serde_json::Value, PeerError> {
-        let catalog: AiCatalog = self
-            .fetch(self.catalog_url.clone(), PeerError::DiscoveryUnavailable)
-            .await?;
-        if catalog.spec_version != "1.0"
-            || catalog
-                .entries
-                .iter()
-                .filter(|e| e.identifier == peer)
-                .count()
-                > 1
-        {
-            return Err(PeerError::DiscoveryUnavailable);
-        }
-        let entry = catalog.get_by_id(peer).ok_or(PeerError::NotFound)?;
-        if entry.entry_type != "application/a2a-agent-card+json" {
-            return Err(PeerError::InvalidCard);
-        }
-        let url = self.trusted_url(entry.url.as_deref().ok_or(PeerError::InvalidCard)?, true)?;
-        let mut raw: serde_json::Value = self.fetch(url, PeerError::InvalidCard).await?;
-        // A2A canonical JSON omits empty StringList.list. SDK 0.3.1's reader
-        // expects it; adapt only the in-memory client view, never signed bytes.
-        fn sdk_requirements(v: &mut serde_json::Value) {
-            if let Some(requirements) = v
-                .get_mut("securityRequirements")
-                .and_then(|r| r.as_array_mut())
-            {
-                for r in requirements {
-                    if let Some(schemes) = r.get_mut("schemes").and_then(|s| s.as_object_mut()) {
-                        for value in schemes.values_mut() {
-                            if value.as_object().is_some_and(|v| v.is_empty()) {
-                                *value = json!({"list":[]});
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        sdk_requirements(&mut raw);
-        if let Some(skills) = raw.get_mut("skills").and_then(|s| s.as_array_mut()) {
-            for skill in skills {
-                sdk_requirements(skill);
-            }
-        }
-        let mut card: AgentCard =
-            serde_json::from_value(raw).map_err(|_| PeerError::InvalidCard)?;
-        let tenant = peer
-            .strip_prefix("urn:aithos:calendar:agent:")
-            .ok_or(PeerError::InvalidCard)?;
-        card.supported_interfaces.retain(|i| {
-            i.protocol_binding == "JSONRPC"
-                && i.tenant.as_deref() == Some(tenant)
-                && i.url == format!("{}/a2a", self.agent_origin.as_str().trim_end_matches('/'))
-        });
-        if card.supported_interfaces.is_empty() {
-            return Err(PeerError::InvalidCard);
-        }
+        operation: Value,
+        trace_id: &str,
+    ) -> Result<Value, PeerError> {
+        let verified = self.resolve(peer, trace_id).await?;
         tracing::info!(
             event = "connected_peer_call",
             peer,
-            recipient_tenant = tenant,
+            recipient_tenant = %verified.tenant,
             operation = operation["operation"].as_str()
         );
         let mut headers = reqwest::header::HeaderMap::new();
@@ -221,20 +401,16 @@ impl PeerDirectory {
             .connect_timeout(Duration::from_secs(2))
             .build()
             .map_err(|_| PeerError::Unavailable)?;
-        let factory = A2AClientFactory::builder()
-            .no_defaults()
-            .with_interceptor(Arc::new(a2a_client::middleware::LoggingInterceptor))
-            .register(Arc::new(JsonRpcTransportFactory::new(Some(http))))
-            .build();
-        let client = factory
-            .create_from_card(&card)
+        let client = self
+            .client(http)
+            .create_from_card(&verified.card)
             .await
             .map_err(|_| PeerError::InvalidCard)?;
         let request = SendMessageRequest {
             tenant: None,
             message: Message::new(Role::User, vec![Part::data(operation)]),
             configuration: None,
-            metadata: None,
+            metadata: Some([(String::from("calendarTraceId"), json!(trace_id))].into()),
         };
         let reply = client
             .send_message(&request)
@@ -266,66 +442,14 @@ impl PeerDirectory {
         caller: &str,
         window: Option<&crate::scheduling::Window>,
     ) -> Result<Availability, PeerError> {
-        let catalog: AiCatalog = self
-            .fetch(self.catalog_url.clone(), PeerError::DiscoveryUnavailable)
-            .await?;
-        if catalog.spec_version != "1.0" {
-            return Err(PeerError::DiscoveryUnavailable);
-        }
-        if catalog
-            .entries
-            .iter()
-            .filter(|entry| entry.identifier == peer)
-            .count()
-            > 1
-        {
-            return Err(PeerError::InvalidCard);
-        }
-        if catalog.spec_version != "1.0"
-            || catalog
-                .entries
-                .iter()
-                .filter(|e| e.identifier == peer)
-                .count()
-                > 1
-        {
-            return Err(PeerError::DiscoveryUnavailable);
-        }
-        let entry = catalog.get_by_id(peer).ok_or(PeerError::NotFound)?;
-        if entry.entry_type != "application/a2a-agent-card+json" {
-            return Err(PeerError::InvalidCard);
-        }
-        if entry.entry_type != "application/a2a-agent-card+json" {
-            return Err(PeerError::InvalidCard);
-        }
-        let url = self.trusted_url(entry.url.as_deref().ok_or(PeerError::InvalidCard)?, true)?;
-        // The SDK resolver only appends a well-known path. Here the catalog
-        // already supplies the full card URL, so fetch it directly as AgentCard.
-        let mut card: AgentCard = self.fetch(url, PeerError::InvalidCard).await?;
-        card.supported_interfaces
-            .retain(|interface| interface.protocol_binding == "JSONRPC");
-        if card.supported_interfaces.is_empty() {
-            return Err(PeerError::InvalidCard);
-        }
-        for interface in &card.supported_interfaces {
-            self.trusted_url(&interface.url, false)?;
-            if interface.tenant.as_deref().is_none_or(str::is_empty) {
-                return Err(PeerError::InvalidCard);
-            }
-        }
-        let factory = A2AClientFactory::builder()
-            .no_defaults()
-            .with_interceptor(Arc::new(a2a_client::middleware::LoggingInterceptor))
-            .register(Arc::new(JsonRpcTransportFactory::new(Some(
-                if window.is_some() {
-                    self.live_http.clone()
-                } else {
-                    self.http.clone()
-                },
-            ))))
-            .build();
+        let verified = self.resolve(peer, trace_id).await?;
+        let factory = self.client(if window.is_some() {
+            self.live_http.clone()
+        } else {
+            self.http.clone()
+        });
         let (client, interface) = factory
-            .create_from_card_with_interface(&card)
+            .create_from_card_with_interface(&verified.card)
             .await
             .map_err(|_| PeerError::InvalidCard)?;
         tracing::info!(

@@ -100,11 +100,13 @@ async fn setup(missing: bool, busy: bool, unknown: bool) -> (Router, Arc<Provide
                     booking_page_url: Some(format!(
                         "https://calendar.google.com/calendar/appointments/schedules/{id}"
                     )),
-                    registry_id: id.into(),
                     card_url: String::new(),
                     card_bytes: String::new(),
                     card_digest: String::new(),
-                    publication: Value::Null,
+                    card_version: String::new(),
+                    card_jwks: Value::Null,
+                    updated_at: String::new(),
+                    manifest: None,
                     published: true,
                 },
                 "",

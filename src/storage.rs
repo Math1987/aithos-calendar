@@ -5,16 +5,33 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{collections::HashMap, sync::Mutex};
 
+/// One published agent: its signed card, byte-exact as served, the public
+/// key that verifies it, and the operator-signed AI Catalog manifest that
+/// binds the card digest. The agent's private signing key is stored
+/// separately by [`AgentStore::create`] and never read back into a record.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Record {
     pub agent: Agent,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub booking_page_url: Option<String>,
-    pub registry_id: String,
+    /// Where the card is served: `{base}/agents/{id}/agent-card.json`.
     pub card_url: String,
+    /// RFC 8785 canonical card, `signatures` included; served verbatim.
     pub card_bytes: String,
+    /// `sha256:<hex>` of `card_bytes`; the manifest's `subject.digest`.
     pub card_digest: String,
-    pub publication: Value,
+    /// The card's own `version` member, repeated on the catalog entry.
+    #[serde(default)]
+    pub card_version: String,
+    /// `{"keys":[...]}` served at `{base}/agents/{id}/jwks.json` (`jku`).
+    #[serde(default)]
+    pub card_jwks: Value,
+    /// RFC 3339 time of the last card change (catalog `updatedAt`).
+    #[serde(default)]
+    pub updated_at: String,
+    /// Operator-signed `trustManifest` for the catalog entry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub manifest: Option<Value>,
     #[serde(skip)]
     pub published: bool,
 }
@@ -33,31 +50,25 @@ pub trait AgentStore: Send + Sync {
     /// Atomic insert. Keep the recovery signing key separate from readable records.
     async fn create(&self, record: &Record, signing_key: &str) -> Result<bool, StoreError>;
     async fn publish(&self, id: &str) -> Result<(), StoreError>;
+    /// Replace the readable record of an existing agent (re-signed card or
+    /// refreshed manifest). The signing key is untouched.
+    async fn update(&self, record: &Record) -> Result<(), StoreError>;
     async fn published(&self) -> Result<Vec<Record>, StoreError>;
 }
 
 #[derive(Default)]
 pub struct MemoryStore(Mutex<HashMap<String, (Record, String)>>);
 impl MemoryStore {
-    pub fn fixtures(base: &str) -> Self {
-        Self(Mutex::new(
-            crate::agents::fixtures()
-                .into_iter()
-                .map(|agent| {
-                    let record = Record {
-                        card_bytes: serde_json::to_string(&agent.card(base)).unwrap(),
-                        card_url: format!("{base}/agents/{}/agent-card.json", agent.id),
-                        booking_page_url: None,
-                        registry_id: String::new(),
-                        card_digest: String::new(),
-                        publication: Value::Null,
-                        published: true,
-                        agent,
-                    };
-                    (record.agent.id.clone(), (record, String::new()))
-                })
-                .collect(),
-        ))
+    /// Alice and Bob, signed with fresh keys and manifests by `trust`.
+    pub async fn fixtures(base: &str, trust: &dyn crate::trust::TrustProvider) -> Self {
+        let store = Self::default();
+        for agent in crate::agents::fixtures() {
+            let (record, key) = crate::identities::issue(trust, agent, None, base)
+                .await
+                .expect("fixture agents sign");
+            store.create(&record, &key.encode()).await.unwrap();
+        }
+        store
     }
 }
 #[async_trait]
@@ -93,6 +104,14 @@ impl AgentStore for MemoryStore {
             .ok_or(StoreError)?
             .0
             .published = true;
+        Ok(())
+    }
+    async fn update(&self, record: &Record) -> Result<(), StoreError> {
+        let mut store = self.0.lock().map_err(|_| StoreError)?;
+        let (current, _) = store.get_mut(&record.agent.id).ok_or(StoreError)?;
+        let published = current.published;
+        *current = record.clone();
+        current.published = published;
         Ok(())
     }
     async fn published(&self) -> Result<Vec<Record>, StoreError> {
@@ -156,7 +175,7 @@ impl AgentStore for DynamoStore {
                 AttributeValue::S(serde_json::to_string(record).map_err(|_| StoreError)?),
             )
             .item("signing_key", AttributeValue::S(signing_key.into()))
-            .item("published", AttributeValue::Bool(false))
+            .item("published", AttributeValue::Bool(record.published))
             .condition_expression("attribute_not_exists(id)")
             .send()
             .await;
@@ -186,6 +205,23 @@ impl AgentStore for DynamoStore {
             .send()
             .await
             .map_err(|e| failed("dynamodb", e.as_service_error().and_then(|v| v.code())))?;
+        Ok(())
+    }
+    async fn update(&self, record: &Record) -> Result<(), StoreError> {
+        self.client
+            .update_item()
+            .table_name(&self.table)
+            .key("id", AttributeValue::S(record.agent.id.clone()))
+            .update_expression("SET #r = :record")
+            .expression_attribute_names("#r", "record")
+            .expression_attribute_values(
+                ":record",
+                AttributeValue::S(serde_json::to_string(record).map_err(|_| StoreError)?),
+            )
+            .condition_expression("attribute_exists(id)")
+            .send()
+            .await
+            .map_err(|e| failed("update_item", e.as_service_error().and_then(|v| v.code())))?;
         Ok(())
     }
     async fn published(&self) -> Result<Vec<Record>, StoreError> {

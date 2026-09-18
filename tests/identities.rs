@@ -1,19 +1,16 @@
 use axum::{
-    Json, Router,
+    Router,
     body::{Body, to_bytes},
-    extract::Path,
     http::{Request, StatusCode},
-    response::IntoResponse,
-    routing::get,
 };
-use calendar::storage::{AgentStore, MemoryStore};
+use calendar::{
+    storage::{AgentStore, MemoryStore},
+    trust::TrustProvider,
+};
 use serde_json::{Value, json};
-use std::{
-    collections::HashMap,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
-    },
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
 };
 use tokio::task::JoinHandle;
 use tower::ServiceExt;
@@ -56,8 +53,7 @@ struct Setup {
     app: Router,
     base: String,
     store: Arc<MemoryStore>,
-    writes: Arc<Mutex<HashMap<String, String>>>,
-    calls: Arc<Mutex<Vec<Value>>>,
+    trust: Arc<dyn TrustProvider>,
     pages: Arc<TestPages>,
     jobs: Vec<JoinHandle<()>>,
 }
@@ -68,90 +64,21 @@ impl Drop for Setup {
         }
     }
 }
-async fn setup(fail: bool) -> Setup {
-    setup_with_reader(fail, None).await
+async fn setup() -> Setup {
+    setup_with_reader(None).await
 }
 async fn setup_with_reader(
-    fail: bool,
     reader: Option<Arc<dyn calendar::availability::AvailabilityReader>>,
 ) -> Setup {
-    let registry_socket = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let registry_origin = format!("http://{}", registry_socket.local_addr().unwrap());
-    let writes = Arc::new(Mutex::new(HashMap::<String, String>::new()));
-    let calls = Arc::new(Mutex::new(Vec::new()));
-    let fail = Arc::new(AtomicBool::new(fail));
-    let store_write = writes.clone();
-    let store_read = writes.clone();
-    let seen = calls.clone();
-    let fail_once = fail.clone();
-    let origin = registry_origin.clone();
-    let registry = Router::new()
-        .route(
-            "/v1/agents/{id}",
-            axum::routing::put(move |Path(id): Path<String>, Json(body): Json<Value>| {
-                let data = store_write.clone();
-                let seen = seen.clone();
-                let fail_once = fail_once.clone();
-                let origin = origin.clone();
-                async move {
-                    let card = a2a_card::validate_value(body["agentCard"].clone()).unwrap();
-                    let keys = body["keys"].as_array().unwrap();
-                    let proofs: Vec<_> = body["proofs"]
-                        .as_array()
-                        .unwrap()
-                        .iter()
-                        .map(|p| registry_core::write::DetachedJws {
-                            protected: p["protected"].as_str().unwrap().into(),
-                            payload: p["payload"].as_str().unwrap().into(),
-                            signature: p["signature"].as_str().unwrap().into(),
-                        })
-                        .collect();
-                    // Independent Aithos verifier checks signatures, key ownership and publication intent.
-                    registry_core::write::evaluate_write(&id, &card, keys, &proofs, &origin, None)
-                        .unwrap();
-                    seen.lock().unwrap().push(body);
-                    let bytes = String::from_utf8(card.bytes).unwrap();
-                    let mut stored = data.lock().unwrap();
-                    if let Some(previous) = stored.get(&id) {
-                        assert_eq!(previous, &bytes, "retry must preserve signed bytes");
-                    }
-                    stored.insert(id, bytes);
-                    if fail_once.swap(false, Ordering::SeqCst) {
-                        StatusCode::SERVICE_UNAVAILABLE
-                    } else {
-                        StatusCode::OK
-                    }
-                }
-            }),
-        )
-        .route(
-            "/v1/agents/{id}/agent-card.json",
-            get(move |Path(id): Path<String>| {
-                let data = store_read.clone();
-                async move {
-                    match data.lock().unwrap().get(&id) {
-                        Some(bytes) => {
-                            ([("content-type", "application/json")], bytes.clone()).into_response()
-                        }
-                        None => StatusCode::NOT_FOUND.into_response(),
-                    }
-                }
-            }),
-        );
-    let registry_job =
-        tokio::spawn(async move { axum::serve(registry_socket, registry).await.unwrap() });
     let socket = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", socket.local_addr().unwrap());
     let store = Arc::new(MemoryStore::default());
+    let trust: Arc<dyn TrustProvider> = Arc::new(calendar::trust::LocalTrust::ephemeral(&base));
     let pages = Arc::new(TestPages::default());
-    let app = calendar::app_with_reader(
-        &base,
-        &format!("{base}/.well-known/ai-catalog.json"),
-        store.clone(),
-        Some(calendar::registry::Registry::new(&registry_origin).unwrap()),
-        base.clone(),
-        pages.clone(),
-        reader,
+    let app = calendar::build(
+        calendar::Config::new(&base, trust.clone(), store.clone())
+            .with_pages(pages.clone())
+            .with_reader(reader),
     )
     .unwrap();
     let network = app.clone();
@@ -160,10 +87,9 @@ async fn setup_with_reader(
         app,
         base,
         store,
-        writes,
-        calls,
+        trust,
         pages,
-        jobs: vec![job, registry_job],
+        jobs: vec![job],
     }
 }
 async fn submit(setup: &Setup, body: Value) -> (StatusCode, Value) {
@@ -196,49 +122,93 @@ async fn catalog(setup: &Setup) -> Value {
 }
 
 #[tokio::test]
-async fn public_creation_reuses_aliases_and_resumes_lost_registry_response() {
-    let s = setup(true).await;
-    let (status, pending) = create(&s, "https://calendar.app.google/host").await;
-    assert_eq!(status, StatusCode::ACCEPTED, "{pending}");
-    assert_eq!(pending["publication_status"], "pending");
-    assert_eq!(pending["booking_page_url"], HOST);
-    assert_eq!(catalog(&s).await["entries"], json!([]));
-    let id = pending["id"].as_str().unwrap();
-    assert_eq!(
-        reqwest::get(format!("{}/agents/{id}/agent-card.json", s.base))
-            .await
-            .unwrap()
-            .status(),
-        StatusCode::NOT_FOUND
-    );
-    // Existing records must not be revalidated or regenerated during a Google outage.
-    s.pages.reject.store(true, Ordering::SeqCst);
-    let (status, published) = create(&s, &format!("{HOST}?gv=true#fragment")).await;
+async fn public_creation_publishes_a_signed_card_and_a_trusted_catalog_entry() {
+    let s = setup().await;
+    let (status, published) = create(&s, "https://calendar.app.google/host").await;
     assert_eq!(status, StatusCode::OK, "{published}");
     assert_eq!(published["publication_status"], "published");
-    for key in ["id", "registry_id", "agent_card_url", "share_url"] {
-        assert_eq!(pending[key], published[key]);
-    }
-    assert_eq!(s.pages.validations.load(Ordering::SeqCst), 1);
-    let calls = s.calls.lock().unwrap();
-    assert_eq!(calls.len(), 2);
-    assert_eq!(calls[0], calls[1]);
-    drop(calls);
-    assert_eq!(create(&s, HOST).await.1, published);
+    assert_eq!(published["booking_page_url"], HOST);
+    let id = published["id"].as_str().unwrap();
     assert_eq!(
-        s.calls.lock().unwrap().len(),
-        2,
-        "confirmed reuse must not republish"
+        published["identifier"],
+        format!("urn:air:127.0.0.1:agent:{id}")
     );
-    assert_eq!(s.writes.lock().unwrap().len(), 1);
+    assert_eq!(
+        published["agent_card_url"],
+        format!("{}/agents/{id}/agent-card.json", s.base)
+    );
+    // The served card is byte-exact, signed by the key served at its jku,
+    // and bound by the catalog entry's manifest.
+    let served = reqwest::get(published["agent_card_url"].as_str().unwrap())
+        .await
+        .unwrap();
+    assert_eq!(
+        served.headers()["etag"].to_str().unwrap().trim_matches('"'),
+        &published["card_digest"].as_str().unwrap()[7..]
+    );
+    let bytes = served.bytes().await.unwrap();
+    let record = s.store.get(id).await.unwrap().unwrap();
+    assert_eq!(bytes.as_ref(), record.card_bytes.as_bytes());
+    assert_eq!(calendar::trust::jose::digest(&bytes), record.card_digest);
+    let jwks: Value = reqwest::get(format!("{}/agents/{id}/jwks.json", s.base))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let keys = calendar::trust::jose::Jwks::parse(&jwks).unwrap();
+    let card: Value = serde_json::from_slice(&bytes).unwrap();
+    calendar::trust::card::verify(&card, &keys).unwrap();
+    let catalog_value = catalog(&s).await;
+    let entry = &catalog_value["entries"][0];
+    assert_eq!(entry["identifier"], published["identifier"]);
+    assert_eq!(entry["url"], published["agent_card_url"]);
+    assert_eq!(
+        entry["trustManifest"]["subject"]["digest"],
+        record.card_digest
+    );
+    assert_eq!(entry["trustManifest"]["identity"], s.trust.identity());
+    let typed: ai_catalog::AiCatalog = serde_json::from_value(catalog_value.clone()).unwrap();
+    let validation = ai_catalog_validate::validate(&typed);
+    assert!(validation.is_valid, "{:?}", validation.errors);
+    assert_eq!(
+        validation.conformance_level,
+        ai_catalog_validate::ConformanceLevel::Trusted
+    );
+    let report = ai_catalog_trust::analyze_catalog(&typed);
+    assert!(
+        report
+            .findings
+            .iter()
+            .all(|f| f.severity != ai_catalog_trust::Severity::Error),
+        "{:?}",
+        report.findings
+    );
+    assert!(ai_catalog_trust::verify_digest(&record.card_digest, &bytes).unwrap());
+    let operator: Value = reqwest::get(s.trust.identity())
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let operator_keys = calendar::trust::jose::Jwks::parse(&operator).unwrap();
+    calendar::trust::verify::verify_catalog(&catalog_value, &operator_keys).unwrap();
+    // Existing records must not be revalidated or regenerated during a Google outage.
+    s.pages.reject.store(true, Ordering::SeqCst);
+    let (status, again) = create(&s, &format!("{HOST}?gv=true#fragment")).await;
+    assert_eq!(status, StatusCode::OK, "{again}");
+    assert_eq!(again, published);
+    assert_eq!(s.pages.validations.load(Ordering::SeqCst), 1);
+    assert_eq!(create(&s, HOST).await.1, published);
     assert_eq!(catalog(&s).await["entries"].as_array().unwrap().len(), 1);
     assert!(published.get("signing_key").is_none());
     assert!(published.get("owner").is_none());
+    assert!(!published.to_string().contains("aithos"));
 }
 
 #[tokio::test]
-async fn dynamic_page_agents_discover_registry_cards_and_collaborate() {
-    let s = setup(false).await;
+async fn dynamic_page_agents_discover_local_cards_and_collaborate() {
+    let s = setup().await;
     let mut ids = Vec::new();
     for url in [HOST, GUEST] {
         let (status, body) = create(&s, url).await;
@@ -258,11 +228,12 @@ async fn dynamic_page_agents_discover_registry_cards_and_collaborate() {
     let typed: ai_catalog::AiCatalog = serde_json::from_value(catalog(&s).await).unwrap();
     assert_eq!(typed.entries.len(), 2);
     for entry in typed.entries {
-        assert!(!entry.url.unwrap().starts_with(&s.base));
+        assert!(entry.url.unwrap().starts_with(&s.base));
+        assert!(entry.trust_manifest.unwrap().signature.is_some());
     }
     for (caller, peer) in [(&ids[0], &ids[1]), (&ids[1], &ids[0])] {
         let reply:Value=reqwest::Client::new().post(format!("{}/a2a",s.base)).json(&json!({"jsonrpc":"2.0","id":"dynamic","method":"SendMessage","params":{
-            "tenant":caller,"message":{"role":"ROLE_USER","messageId":"test","parts":[{"data":{"operation":"find_common_slot","peer":format!("urn:aithos:calendar:agent:{peer}"),"duration_minutes":30}}]}
+            "tenant":caller,"message":{"role":"ROLE_USER","messageId":"test","parts":[{"data":{"operation":"find_common_slot","peer":format!("urn:air:127.0.0.1:agent:{peer}"),"duration_minutes":30}}]}
         }})).send().await.unwrap().json().await.unwrap();
         let result = reply["result"]["message"]["parts"]
             .as_array()
@@ -278,7 +249,7 @@ async fn dynamic_page_agents_discover_registry_cards_and_collaborate() {
 
 #[tokio::test]
 async fn simultaneous_first_submissions_have_one_winner_and_one_card() {
-    let s = setup(false).await;
+    let s = setup().await;
     // Force both requests past the missing-record check before either inserts.
     *s.pages.barrier.lock().unwrap() = Some(Arc::new(tokio::sync::Barrier::new(2)));
     let (first, second) = futures::join!(
@@ -289,16 +260,14 @@ async fn simultaneous_first_submissions_have_one_winner_and_one_card() {
     assert_eq!(second.0, StatusCode::OK, "{}", second.1);
     assert_eq!(first.1, second.1);
     assert_eq!(s.pages.validations.load(Ordering::SeqCst), 2);
-    assert_eq!(s.writes.lock().unwrap().len(), 1);
-    assert_eq!(s.store.published().await.unwrap().len(), 1);
-    let calls = s.calls.lock().unwrap();
-    assert!(calls.len() >= 1);
-    assert!(calls.iter().all(|c| c == &calls[0]));
+    let published = s.store.published().await.unwrap();
+    assert_eq!(published.len(), 1);
+    assert_eq!(published[0].card_digest, first.1["card_digest"]);
 }
 
 #[tokio::test]
 async fn rejected_input_never_creates_records_and_cannot_override_existing_agent() {
-    let s = setup(false).await;
+    let s = setup().await;
     for input in [
         json!({}),
         json!({"booking_page_url":"http://127.0.0.1/private"}),
@@ -310,7 +279,6 @@ async fn rejected_input_never_creates_records_and_cannot_override_existing_agent
         assert!(!submit(&s, input).await.0.is_success());
     }
     assert!(s.store.published().await.unwrap().is_empty());
-    assert!(s.calls.lock().unwrap().is_empty());
     s.pages.reject.store(true, Ordering::SeqCst);
     assert_eq!(create(&s, HOST).await.0, StatusCode::UNPROCESSABLE_ENTITY);
     let id = BookingPage { url: HOST.into() }.agent_id();
@@ -407,7 +375,7 @@ fn reply_data(reply: &Value) -> &Value {
 #[tokio::test]
 async fn live_agents_use_host_duration_and_full_peer_coverage_without_contact_leaks() {
     let reader = Arc::new(LiveReader::default());
-    let s = setup_with_reader(false, Some(reader.clone())).await;
+    let s = setup_with_reader(Some(reader.clone())).await;
     let host = create(&s, HOST).await.1;
     let guest = create(&s, GUEST).await.1;
     assert_eq!(host["mock"], false);
@@ -452,7 +420,7 @@ async fn live_agents_use_host_duration_and_full_peer_coverage_without_contact_le
     let unknown = live_send(
         &s,
         id,
-        json!({"operation":"find_common_slot","peer":"urn:aithos:calendar:agent:missing"}),
+        json!({"operation":"find_common_slot","peer":"urn:air:127.0.0.1:agent:missing"}),
     )
     .await;
     assert_eq!(reply_data(&unknown)["code"], "peer_not_found");
@@ -463,7 +431,7 @@ async fn live_agents_use_host_duration_and_full_peer_coverage_without_contact_le
 
 #[tokio::test]
 async fn legacy_mock_links_require_upgrade_and_cannot_supply_live_availability() {
-    let s = setup(false).await;
+    let s = setup().await;
     let agent = create(&s, HOST).await.1;
     let id = agent["id"].as_str().unwrap();
     let response = reqwest::get(format!("{}/agents/{id}/schedule", s.base))
@@ -475,16 +443,13 @@ async fn legacy_mock_links_require_upgrade_and_cannot_supply_live_availability()
 }
 
 #[tokio::test]
-#[ignore = "requires two GOOGLE_BOOKING_TEST_* URLs; Google reads only, registry is local"]
+#[ignore = "requires two GOOGLE_BOOKING_TEST_* URLs; Google reads only"]
 async fn live_google_pages_collaborate_over_a2a_without_booking() {
     let host_url = std::env::var("GOOGLE_BOOKING_TEST_HOST").unwrap();
     let guest_url = std::env::var("GOOGLE_BOOKING_TEST_GUEST").unwrap();
-    let s = setup_with_reader(
-        false,
-        Some(Arc::new(
-            calendar::availability::GoogleHttpReader::new().unwrap(),
-        )),
-    )
+    let s = setup_with_reader(Some(Arc::new(
+        calendar::availability::GoogleHttpReader::new().unwrap(),
+    )))
     .await;
     let host = create(&s, &host_url).await.1;
     let guest = create(&s, &guest_url).await.1;

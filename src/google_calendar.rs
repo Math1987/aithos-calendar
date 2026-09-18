@@ -105,7 +105,7 @@ impl GoogleCalendar {
     }
     async fn token(&self, id: &str) -> Result<String> {
         let connection = self.connection(id).await?;
-        let decoded = a2a_card::canonical::b64url_decode(&connection.cipher)
+        let decoded = crate::trust::jose::b64url_decode(&connection.cipher)
             .map_err(|_| "calendar_connection_required")?;
         let plain = self
             .kms
@@ -378,7 +378,7 @@ impl Calendars for GoogleCalendar {
             .send()
             .await
             .map_err(|_| "calendar_unavailable")?;
-        let cipher = a2a_card::canonical::b64url(
+        let cipher = crate::trust::jose::b64url(
             encrypted
                 .ciphertext_blob()
                 .ok_or("calendar_unavailable")?

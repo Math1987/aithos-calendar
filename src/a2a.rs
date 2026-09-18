@@ -13,6 +13,7 @@ use std::time::Duration;
 
 /// Immediate messages only: no task store or work left running after a response.
 pub struct CalendarHandler {
+    pub publisher: crate::agents::Publisher,
     pub directory: PeerDirectory,
     pub connected: Option<std::sync::Arc<crate::connected::Connected>>,
     pub reader: Option<std::sync::Arc<dyn crate::availability::AvailabilityReader>>,
@@ -87,7 +88,7 @@ impl CalendarHandler {
         let error = |code: &str, peer: Option<&str>| {
             structured_reply(
                 "Availability could not be checked; nothing was booked",
-                json!({"status":"error", "code":code, "organizer":agent.identifier(), "peer":peer,
+                json!({"status":"error", "code":code, "organizer":self.publisher.urn(&agent.id), "peer":peer,
                 "mock":false,"reserved":false,"trace_id":trace_id}),
             )
         };
@@ -103,7 +104,7 @@ impl CalendarHandler {
                 };
                 let availability = Availability {
                     status: "availability".into(),
-                    agent: agent.identifier(),
+                    agent: self.publisher.urn(&agent.id),
                     slots: schedule.slots.clone(),
                     mock: false,
                     trace_id: trace_id.into(),
@@ -118,7 +119,7 @@ impl CalendarHandler {
                 peer,
                 duration_minutes,
             } => {
-                if peer.is_empty() || peer.len() > 256 || peer == agent.identifier() {
+                if peer.is_empty() || peer.len() > 256 || peer == self.publisher.urn(&agent.id) {
                     return Err(A2AError::invalid_params("Provide another peer identifier"));
                 }
                 let window = Window::next_month();
@@ -165,7 +166,7 @@ impl CalendarHandler {
                     } else {
                         "No common offered host slot from tomorrow within the next 30 days"
                     },
-                    json!({"status":status,"organizer":agent.identifier(),"peer":peer,"slot":slot,
+                    json!({"status":status,"organizer":self.publisher.urn(&agent.id),"peer":peer,"slot":slot,
                         "duration_minutes":host.duration_minutes,"schedule":ScheduleInfo::from(&host),
                         "mock":false,"reserved":false,"trace_id":trace_id}),
                 ))
@@ -263,7 +264,7 @@ impl CalendarHandler {
                 }
                 let availability = Availability {
                     status: "availability".into(),
-                    agent: agent.identifier(),
+                    agent: self.publisher.urn(&agent.id),
                     slots: agent.availability(),
                     mock: true,
                     schedule: None,
@@ -284,7 +285,7 @@ impl CalendarHandler {
                 if !(1..=480).contains(&duration_minutes)
                     || peer.is_empty()
                     || peer.len() > 256
-                    || peer == agent.identifier()
+                    || peer == self.publisher.urn(&agent.id)
                 {
                     return Err(A2AError::invalid_params(
                         "Provide another peer identifier and a duration of 1 to 480 minutes",
@@ -315,7 +316,7 @@ impl CalendarHandler {
                             } else {
                                 "No common slot fits the requested duration"
                             },
-                            json!({"status":status, "organizer":agent.identifier(), "peer":peer,
+                            json!({"status":status, "organizer":self.publisher.urn(&agent.id), "peer":peer,
                              "duration_minutes":duration_minutes, "slot":slot,
                              "mock":true, "reserved":false, "trace_id":trace_id}),
                         )
@@ -323,7 +324,7 @@ impl CalendarHandler {
                     Err(error) => (
                         error.message(),
                         json!({"status":"error", "code":error.code(),
-                        "organizer":agent.identifier(), "peer":peer, "mock":true,
+                        "organizer":self.publisher.urn(&agent.id), "peer":peer, "mock":true,
                         "reserved":false, "trace_id":trace_id}),
                     ),
                 };

@@ -10,6 +10,8 @@ use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
 use tokio::task::JoinHandle;
 
+mod common;
+
 struct Server {
     base: String,
     requests: Arc<Mutex<Vec<Value>>>,
@@ -24,38 +26,58 @@ impl Drop for Server {
 async fn start(mode: &'static str) -> Server {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
-    let catalog = if mode == "absent" {
-        json!({"specVersion":"1.0", "entries":[]})
-    } else {
-        json!({"specVersion":"1.0", "entries": (["alice", "bob"].map(|id| json!({
-            "identifier":format!("urn:aithos:calendar:agent:{id}"),
-            "type":"application/a2a-agent-card+json",
-            "url":format!("{base}/custom-card/{id}?revision=1")
-        })))})
-    };
+    let fixture = common::Fixture::new(
+        &base,
+        vec![
+            common::mock_agent("alice", &[("09:00", "10:00"), ("14:00", "15:00")]),
+            common::mock_agent("bob", &[("09:30", "10:30"), ("15:00", "16:00")]),
+        ],
+    )
+    .await;
     let endpoint = match mode {
         "unavailable" | "slow" | "invalid" | "bad_slots" => format!("{base}/peer-fixture"),
         "external" => "http://169.254.169.254/latest/meta-data".to_owned(),
         _ => format!("{base}/a2a"),
     };
+    // Custom card URLs, signed by each agent's own key, listed in a signed
+    // catalog served from a path of the fixture router.
+    let mut cards = std::collections::HashMap::new();
+    let mut entries = Vec::new();
+    for id in ["alice", "bob"] {
+        let bytes = fixture
+            .sign_card(
+                id,
+                json!({
+                    "name":id, "description":"Test card", "version":"1.0",
+                    "supportedInterfaces":[{"url":endpoint, "protocolBinding":"JSONRPC", "protocolVersion":"1.0", "tenant":id}],
+                    "capabilities":{}, "defaultInputModes":["application/json"], "defaultOutputModes":["application/json"], "skills":[]
+                }),
+            )
+            .await;
+        let url = format!("{base}/custom-card/{id}?revision=1");
+        entries.push((fixture.urn(id), url, bytes.clone()));
+        cards.insert(id.to_owned(), bytes);
+    }
+    let catalog = if mode == "absent" {
+        fixture.catalog(&[]).await
+    } else {
+        fixture.catalog(&entries).await
+    };
     let requests = Arc::new(Mutex::new(Vec::new()));
     let captured = requests.clone();
-    let fixture = Router::new()
+    let cards = Arc::new(cards);
+    let fixture_routes = Router::new()
         .route("/registry/catalog", get(move || async move { Json(catalog.clone()) }))
         .route("/custom-card/{id}", get(move |Path(id): Path<String>| {
-            let endpoint = endpoint.clone();
-            async move { Json(json!({
-                "name":id, "description":"Test card", "version":"1.0",
-                "supportedInterfaces":[{"url":endpoint, "protocolBinding":"JSONRPC", "protocolVersion":"1.0", "tenant":id}],
-                "capabilities":{}, "defaultInputModes":["application/json"], "defaultOutputModes":["application/json"], "skills":[]
-            })) }
+            let cards = cards.clone();
+            async move { ([("content-type", "application/json")], cards[&id].clone()) }
         }))
         .route("/peer-fixture", post(move |Json(request): Json<Value>| async move {
             if mode == "slow" { tokio::time::sleep(std::time::Duration::from_secs(5)).await; }
             let reply = if mode == "bad_slots" {
                 json!({"jsonrpc":"2.0", "id":request["id"], "result":{"message":{
                     "messageId":"fixture", "role":"ROLE_AGENT", "parts":[{"data":{
-                        "status":"availability", "agent":"urn:aithos:calendar:agent:bob", "mock":true,
+                        "status":"availability", "agent":format!("urn:air:127.0.0.1:agent:bob"), "mock":true,
                         "trace_id":request["params"]["metadata"]["calendarTraceId"],
                         "slots":[{"start":"2030-01-15T11:00:00Z", "end":"2030-01-15T10:00:00Z"}]
                     }}]
@@ -63,9 +85,11 @@ async fn start(mode: &'static str) -> Server {
             } else { json!({"unexpected":true}) };
             (if mode == "unavailable" { StatusCode::SERVICE_UNAVAILABLE } else { StatusCode::OK }, Json(reply))
         }));
-    let app = calendar::app_with_catalog(&base, &format!("{base}/registry/catalog"))
+    let config = calendar::Config::new(&base, fixture.trust.clone(), fixture.store.clone())
+        .with_catalog(&format!("{base}/registry/catalog"));
+    let app = calendar::build(config)
         .unwrap()
-        .merge(fixture)
+        .merge(fixture_routes)
         .layer(middleware::from_fn(move |request: Request, next: Next| {
             let captured = captured.clone();
             async move {
@@ -107,7 +131,7 @@ async fn send(server: &Server, tenant: &str, operation: Value) -> Value {
         .unwrap()
 }
 fn operation(peer: &str, duration: u16) -> Value {
-    json!({"operation":"find_common_slot", "peer":format!("urn:aithos:calendar:agent:{peer}"), "duration_minutes":duration})
+    json!({"operation":"find_common_slot", "peer":format!("urn:air:127.0.0.1:agent:{peer}"), "duration_minutes":duration})
 }
 fn data(reply: &Value) -> &Value {
     reply["result"]["message"]["parts"]
@@ -198,7 +222,7 @@ async fn invalid_duration_self_request_and_unknown_operation_are_rejected() {
         operation("bob", 0),
         operation("bob", 481),
         json!({"operation":"book"}),
-        json!({"operation":"find_common_slot", "peer":"urn:aithos:calendar:agent:bob", "duration_minutes":30.5}),
+        json!({"operation":"find_common_slot", "peer":"urn:air:127.0.0.1:agent:bob", "duration_minutes":30.5}),
     ] {
         let reply = send(&server, "alice", input).await;
         assert_eq!(reply["error"]["code"], -32602, "{reply}");

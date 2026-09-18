@@ -17,7 +17,12 @@ async fn main() -> Result<(), Error> {
         )
     });
     let app = if listen.is_some() {
-        calendar::app_with_catalog(&base_url, &catalog_url)?
+        // Local run: in-memory fixtures, ephemeral operator key.
+        let trust = calendar::trust::from_env(&base_url, None).await?;
+        let store = std::sync::Arc::new(
+            calendar::storage::MemoryStore::fixtures(&base_url, trust.as_ref()).await,
+        );
+        calendar::build(calendar::Config::new(&base_url, trust, store).with_catalog(&catalog_url))?
     } else {
         let table = std::env::var("AGENTS_TABLE")?;
         let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
@@ -33,7 +38,17 @@ async fn main() -> Result<(), Error> {
             aws_sdk_dynamodb::Client::new(&config),
             table,
         ));
-        let registry = calendar::registry::Registry::new(&std::env::var("REGISTRY_ORIGIN")?)?;
+        let trust =
+            calendar::trust::from_env(&base_url, Some(aws_sdk_kms::Client::new(&config))).await?;
+        let trusted_identities: Vec<String> = std::env::var("TRUSTED_IDENTITIES")
+            .ok()
+            .map(|v| {
+                v.split(',')
+                    .map(|s| s.trim().to_owned())
+                    .filter(|s| !s.is_empty())
+                    .collect()
+            })
+            .unwrap_or_else(|| vec![trust.identity().to_owned()]);
         let private_store: std::sync::Arc<dyn calendar::auth_store::AuthStore> =
             std::sync::Arc::new(calendar::auth_store::DynamoAuthStore::new(
                 aws_sdk_dynamodb::Client::new(&config),
@@ -55,6 +70,7 @@ async fn main() -> Result<(), Error> {
                 url: std::env::var("AGENT_QUEUE_URL")?,
             }),
         });
+        let website = std::env::var("CALENDAR_WEBSITE_URL")?;
         let connected = std::sync::Arc::new(calendar::connected::Connected {
             jobs: Some(jobs.clone()),
             calendars: std::sync::Arc::new(calendar::google_calendar::GoogleCalendar::new(
@@ -68,12 +84,12 @@ async fn main() -> Result<(), Error> {
             store: private_store.clone(),
             bookings: booking_store.clone(),
             agents: store.clone(),
-            directory: std::sync::Arc::new(calendar::discovery::PeerDirectory::new_with_registry(
+            directory: std::sync::Arc::new(calendar::discovery::PeerDirectory::new(
                 &base_url,
                 &catalog_url,
-                Some(&registry.origin),
+                trusted_identities.clone(),
             )?),
-            website: std::env::var("CALENDAR_WEBSITE_URL")?,
+            website: website.clone(),
         });
         if std::env::var("CALENDAR_WORKER").as_deref() == Ok("true") {
             let model = std::sync::Arc::new(calendar::agent::model::Model::new(
@@ -119,17 +135,15 @@ async fn main() -> Result<(), Error> {
             .await?;
             return Ok(());
         }
-        let app = calendar::app_with_connector(
-            &base_url,
-            &catalog_url,
-            store.clone(),
-            Some(registry),
-            std::env::var("CALENDAR_WEBSITE_URL")?,
-            std::sync::Arc::new(calendar::booking_page::GoogleBookingPages::new()?),
-            Some(std::sync::Arc::new(
-                calendar::availability::GoogleHttpReader::new()?,
-            )),
-            Some(connected.clone()),
+        let app = calendar::build(
+            calendar::Config::new(&base_url, trust.clone(), store.clone())
+                .with_catalog(&catalog_url)
+                .with_website(&website)
+                .with_trusted_identities(trusted_identities)
+                .with_reader(Some(std::sync::Arc::new(
+                    calendar::availability::GoogleHttpReader::new()?,
+                )))
+                .with_connected(Some(connected.clone())),
         )?;
         let auth = calendar::auth::Auth {
             store: private_store,
@@ -141,9 +155,9 @@ async fn main() -> Result<(), Error> {
                 std::env::var("GOOGLE_OAUTH_CLIENT_SECRET_ID")?,
                 aws_sdk_secretsmanager::Client::new(&config),
             )?),
-            registry: calendar::registry::Registry::new(&std::env::var("REGISTRY_ORIGIN")?)?,
+            trust,
             base: base_url.clone(),
-            website: std::env::var("CALENDAR_WEBSITE_URL")?,
+            website,
             allowed_emails: std::env::var("GOOGLE_OAUTH_TEST_USERS")?
                 .split(',')
                 .map(|v| v.trim().to_owned())

@@ -48,6 +48,7 @@ fn view(r: &BookingOperation) -> Value {
 impl Connected {
     async fn call(&self, host: &str, caller: &str, data: Value) -> Result<Value, &'static str> {
         let token = random();
+        let trace_id = a2a::new_message_id();
         let key = format!("a2a-grant:{}", digest(&token));
         let row = Entry {
             value: json!({"recipient":host,"caller":caller,"request":data}),
@@ -60,7 +61,12 @@ impl Connected {
             .map_err(|_| "storage_unavailable")?;
         let result = self
             .directory
-            .account_call(&format!("urn:aithos:calendar:agent:{host}"), &token, data)
+            .account_call(
+                &self.directory.publisher().urn(host),
+                &token,
+                data,
+                &trace_id,
+            )
             .await
             .map_err(|e| e.code());
         let _ = self.store.delete(&key).await;
@@ -101,7 +107,7 @@ impl Connected {
                 let profile =
                     crate::agent::preferences::cached(self.store.as_ref(), tenant, caller).await;
                 Ok(
-                    json!({"status":"availability","agent":format!("urn:aithos:calendar:agent:{tenant}"),"availability":a,"preferences":profile.preferences}),
+                    json!({"status":"availability","agent":self.directory.publisher().urn(tenant),"availability":a,"preferences":profile.preferences}),
                 )
             }
             Some("commit_booking") => {
@@ -190,7 +196,7 @@ impl Connected {
                 _ => "peer_unavailable",
             });
         }
-        if remote["agent"] != format!("urn:aithos:calendar:agent:{host}") {
+        if remote["agent"] != self.directory.publisher().urn(host) {
             return Err("invalid_peer_response");
         }
         let host_availability: Availability =

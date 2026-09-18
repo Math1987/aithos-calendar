@@ -6,17 +6,10 @@ use crate::{
 };
 use axum::{
     body::{Body, to_bytes},
-    extract::Path,
     http::Request,
 };
 use serde_json::Value;
-use std::{
-    collections::HashMap,
-    sync::{
-        Mutex,
-        atomic::{AtomicUsize, Ordering},
-    },
-};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use tower::ServiceExt;
 
 #[derive(Default)]
@@ -63,42 +56,17 @@ impl IdentityProvider for TestGoogle {
     }
 }
 async fn fixture() -> (Auth, Arc<TestGoogle>, tokio::task::JoinHandle<()>) {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let origin = format!("http://{}", listener.local_addr().unwrap());
-    let cards = Arc::new(Mutex::new(HashMap::<String, String>::new()));
-    let write = cards.clone();
-    let read = cards;
-    let routes = Router::new()
-        .route(
-            "/v1/agents/{id}",
-            axum::routing::put(move |Path(id): Path<String>, Json(body): Json<Value>| {
-                let write = write.clone();
-                async move {
-                    let canonical = a2a_card::validate_value(body["agentCard"].clone()).unwrap();
-                    write
-                        .lock()
-                        .unwrap()
-                        .insert(id, String::from_utf8(canonical.bytes).unwrap());
-                    StatusCode::OK
-                }
-            }),
-        )
-        .route(
-            "/v1/agents/{id}/agent-card.json",
-            get(move |Path(id): Path<String>| {
-                let read = read.clone();
-                async move { read.lock().unwrap().get(&id).cloned().unwrap() }
-            }),
-        );
-    let task = tokio::spawn(async move { axum::serve(listener, routes).await.unwrap() });
+    // A placeholder task keeps the fixture shape used by every test.
+    let task = tokio::spawn(async {});
     let provider = Arc::new(TestGoogle::default());
+    let base = "https://api.calendar.test";
     (
         Auth {
             store: Arc::new(MemoryAuthStore::default()),
             agents: Arc::new(MemoryStore::default()),
             provider: provider.clone(),
-            registry: crate::registry::Registry::new(&origin).unwrap(),
-            base: "https://api.calendar.test".into(),
+            trust: Arc::new(crate::trust::LocalTrust::ephemeral(base)),
+            base: base.into(),
             website: "https://calendar.test".into(),
             allowed_emails: vec!["test@example.com".into()],
             connected: None,
@@ -198,12 +166,8 @@ async fn login_reuses_account_and_agent_without_exposing_identity() {
     let card: Value = serde_json::from_str(&record.card_bytes).unwrap();
     assert_eq!(card["skills"].as_array().unwrap().len(), 3);
     assert_eq!(card["skills"][0]["id"], "greeting");
-    let protocol = crate::app_with_store(
-        &s.base,
-        &format!("{}/.well-known/ai-catalog.json", s.base),
-        s.agents.clone(),
-        None,
-        s.website.clone(),
+    let protocol = crate::build(
+        crate::Config::new(&s.base, s.trust.clone(), s.agents.clone()).with_website(&s.website),
     )
     .unwrap();
     let reply = protocol.oneshot(Request::builder().uri("/a2a").method("POST").header("content-type","application/json")
@@ -376,21 +340,42 @@ async fn denial_and_failed_verification_never_create_a_session() {
     server.abort();
 }
 #[tokio::test]
-async fn simultaneous_logins_share_one_identity_and_retry_publication() {
+async fn simultaneous_logins_share_one_identity_and_one_signed_card() {
     let (s, _, server) = fixture().await;
     let (a, b) = tokio::join!(login(&s, "same-sub"), login(&s, "same-sub"));
     let a_profile = value(call(&s, "/auth/me", "GET", Some(&a), None).await).await;
     let b_profile = value(call(&s, "/auth/me", "GET", Some(&b), None).await).await;
     assert_eq!(a_profile["id"], b_profile["id"]);
-    let mut down = s.clone();
-    down.registry = crate::registry::Registry::new("http://127.0.0.1:1").unwrap();
-    let pending = call(&down, "/auth/agent", "POST", Some(&a), Some(&s.website)).await;
-    assert_eq!(pending.status(), StatusCode::ACCEPTED);
-    let pending = value(pending).await;
-    // Signed bytes and registry URL are preserved, including when registry recovery is needed.
-    let again = value(call(&down, "/auth/agent", "POST", Some(&a), Some(&s.website)).await).await;
-    assert_eq!(pending["id"], again["id"]);
-    assert_eq!(pending["agent_card_url"], again["agent_card_url"]);
+    let (first, second) = tokio::join!(
+        call(&s, "/auth/agent", "POST", Some(&a), Some(&s.website)),
+        call(&s, "/auth/agent", "POST", Some(&b), Some(&s.website))
+    );
+    assert_eq!(first.status(), StatusCode::OK);
+    assert_eq!(second.status(), StatusCode::OK);
+    let (first, second) = (value(first).await, value(second).await);
+    assert_eq!(first, second, "one identity, one card, one key");
+    assert_eq!(first["publication_status"], "published");
+    assert_eq!(
+        first["identifier"],
+        format!(
+            "urn:air:api.calendar.test:agent:{}",
+            first["id"].as_str().unwrap()
+        )
+    );
+    assert_eq!(s.agents.published().await.unwrap().len(), 1);
+    let record = s
+        .agents
+        .get(first["id"].as_str().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    let card: Value = serde_json::from_str(&record.card_bytes).unwrap();
+    let keys = crate::trust::jose::Jwks::parse(&record.card_jwks).unwrap();
+    crate::trust::card::verify(&card, &keys).unwrap();
+    assert_eq!(
+        record.manifest.as_ref().unwrap()["subject"]["digest"],
+        record.card_digest
+    );
     server.abort();
 }
 

@@ -86,6 +86,8 @@ async fn fixture() -> (
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
     let agents = Arc::new(MemoryStore::default());
+    let trust: Arc<dyn crate::trust::TrustProvider> =
+        Arc::new(crate::trust::LocalTrust::ephemeral(&base));
     for id in ["host", "guest"] {
         let agent = Agent {
             id: id.into(),
@@ -94,12 +96,12 @@ async fn fixture() -> (
             google_account: true,
             slots: vec![],
         };
-        let registry = crate::registry::Registry::new(&base).unwrap();
-        let (mut r, _) = registry.prepare(agent, None, &base).unwrap();
-        r.card_url = format!("{base}/agents/{id}/agent-card.json");
-        r.published = true;
-        agents.create(&r, "").await.unwrap();
+        let (r, key) = crate::identities::issue(trust.as_ref(), agent, None, &base)
+            .await
+            .unwrap();
+        agents.create(&r, &key.encode()).await.unwrap();
     }
+    let config = crate::Config::new(&base, trust, agents.clone());
     let calendars = Arc::new(FakeCalendars::default());
     let service = Arc::new(Connected {
         jobs: None,
@@ -107,27 +109,10 @@ async fn fixture() -> (
         store: Arc::new(MemoryAuthStore::default()),
         bookings: Arc::new(MemoryBookingStore::default()),
         agents: agents.clone(),
-        directory: Arc::new(
-            crate::discovery::PeerDirectory::new_with_registry(
-                &base,
-                &format!("{base}/.well-known/ai-catalog.json"),
-                None,
-            )
-            .unwrap(),
-        ),
+        directory: Arc::new(config.directory().unwrap()),
         website: base.clone(),
     });
-    let app = crate::app_with_connector(
-        &base,
-        &format!("{base}/.well-known/ai-catalog.json"),
-        agents,
-        None,
-        base.clone(),
-        Arc::new(crate::booking_page::GoogleBookingPages::new().unwrap()),
-        None,
-        Some(service.clone()),
-    )
-    .unwrap();
+    let app = crate::build(config.with_connected(Some(service.clone()))).unwrap();
     let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     (service, calendars, task)
 }

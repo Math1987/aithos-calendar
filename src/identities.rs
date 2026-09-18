@@ -1,9 +1,9 @@
 use crate::{
-    agents::Agent,
+    agents::{Agent, Publisher},
     booking_page::{BookingPages, PageError},
-    registry::Registry,
     scheduling::Slot,
     storage::{AgentStore, Record},
+    trust::{AgentKey, EntryDraft, TrustError, TrustProvider, manifest::CARD_TYPE},
 };
 use axum::{
     Json,
@@ -16,14 +16,72 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{sync::Arc, time::Duration};
 
-#[derive(Clone)]
 pub struct Identities {
     pub store: Arc<dyn AgentStore>,
     pub base: String,
-    pub registry: Option<Registry>,
+    pub publisher: Publisher,
+    pub trust: Arc<dyn TrustProvider>,
     pub website: String,
     pub pages: Arc<dyn BookingPages>,
     pub reader: Option<Arc<dyn crate::availability::AvailabilityReader>>,
+    /// Cache of the last signed catalog (see `catalog.rs`).
+    pub signed: crate::catalog::Signed,
+}
+
+pub fn card_url(base: &str, id: &str) -> String {
+    format!("{}/agents/{id}/agent-card.json", base.trim_end_matches('/'))
+}
+pub fn jwks_url(base: &str, id: &str) -> String {
+    format!("{}/agents/{id}/jwks.json", base.trim_end_matches('/'))
+}
+
+/// Issue a publishable record for `agent`: a fresh signing key, the signed
+/// card served on this deployment, and the operator-signed catalog manifest
+/// bound to those exact card bytes. Nothing leaves this process; the record
+/// is discoverable as soon as it is stored.
+pub async fn issue(
+    trust: &dyn TrustProvider,
+    agent: Agent,
+    booking_page_url: Option<String>,
+    base: &str,
+) -> Result<(Record, AgentKey), TrustError> {
+    reissue(trust, agent, booking_page_url, base, AgentKey::random()).await
+}
+
+/// Same as [`issue`] with an existing key (operator re-signing).
+pub async fn reissue(
+    trust: &dyn TrustProvider,
+    agent: Agent,
+    booking_page_url: Option<String>,
+    base: &str,
+    key: AgentKey,
+) -> Result<(Record, AgentKey), TrustError> {
+    let base = base.trim_end_matches('/');
+    let card = serde_json::to_value(agent.card(base))
+        .map_err(|_| TrustError::InvalidInput("agent_card"))?;
+    let signed = trust
+        .sign_card(card, &key, &jwks_url(base, &agent.id))
+        .await?;
+    let entry = EntryDraft {
+        identifier: Publisher::from_base(base).urn(&agent.id),
+        entry_type: CARD_TYPE.into(),
+        url: card_url(base, &agent.id),
+    };
+    let manifest = trust.manifest_for(&entry, &signed.bytes).await?;
+    let record = Record {
+        card_url: entry.url,
+        card_bytes: String::from_utf8(signed.bytes)
+            .map_err(|_| TrustError::InvalidInput("agent_card"))?,
+        card_digest: signed.digest,
+        card_version: signed.version,
+        card_jwks: key.jwks(),
+        updated_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        manifest: Some(manifest),
+        booking_page_url,
+        agent,
+        published: true,
+    };
+    Ok((record, key))
 }
 
 /// Public onboarding. No caller identity, browser session or credentials required.
@@ -60,45 +118,21 @@ fn page_failure(error: PageError) -> Response {
     )
 }
 fn view(state: &Identities, record: &Record) -> Value {
-    let mut value = json!({"id":record.agent.id, "identifier":record.agent.identifier(), "name":record.agent.name,
+    let mut value = json!({"id":record.agent.id, "identifier":state.publisher.urn(&record.agent.id), "name":record.agent.name,
         "booking_page_url":record.booking_page_url, "share_url":format!("{}/book/{}",state.website.trim_end_matches('/'),record.agent.id),
-        "mock_availability":record.agent.slots, "registry_id":record.registry_id, "agent_card_url":record.card_url,
+        "mock_availability":record.agent.slots, "agent_card_url":record.card_url, "agent_jwks_url":jwks_url(&state.base, &record.agent.id),
+        "card_digest":record.card_digest,
         "publication_status":if record.published {"published"} else {"pending"}, "mock":!record.agent.live, "reserved":false});
     if record.agent.live {
         value.as_object_mut().unwrap().remove("mock_availability");
     }
     value
 }
-async fn publish_record(state: &Identities, mut record: Record) -> Response {
-    if record.published {
-        tracing::info!(event="identity_reused",tenant=%record.agent.id);
-        return Json(view(state, &record)).into_response();
-    }
-    let Some(registry) = &state.registry else {
-        return failure(StatusCode::SERVICE_UNAVAILABLE, "registry_not_configured");
-    };
-    // Reposting the same page resumes these exact signed bytes and proof.
-    if let Err(code) = registry.publish(&record).await {
-        tracing::warn!(event="publication_pending", tenant=%record.agent.id, code);
-        let mut value = view(state, &record);
-        value["error"] = json!(code);
-        return (StatusCode::ACCEPTED, Json(value)).into_response();
-    }
-    if state.store.publish(&record.agent.id).await.is_err() {
-        return failure(StatusCode::SERVICE_UNAVAILABLE, "storage_unavailable");
-    }
-    record.published = true;
-    tracing::info!(event="identity_published",tenant=%record.agent.id,registry_id=%record.registry_id);
-    Json(view(state, &record)).into_response()
-}
 
 pub async fn create(
     State(state): State<Arc<Identities>>,
     Json(definition): Json<Definition>,
 ) -> Response {
-    let Some(registry) = &state.registry else {
-        return failure(StatusCode::SERVICE_UNAVAILABLE, "registry_not_configured");
-    };
     let page = match tokio::time::timeout(
         Duration::from_secs(5),
         state.pages.resolve(&definition.booking_page_url),
@@ -114,7 +148,7 @@ pub async fn create(
         Ok(record) => record,
         Err(_) => return failure(StatusCode::SERVICE_UNAVAILABLE, "storage_unavailable"),
     };
-    let record = if let Some(record) = existing {
+    let mut record = if let Some(record) = existing {
         record
     } else {
         match tokio::time::timeout(Duration::from_secs(5), state.pages.validate(&page)).await {
@@ -144,13 +178,23 @@ pub async fn create(
                 }]
             },
         };
-        let (candidate, key) = match registry.prepare(agent, Some(page.url.clone()), &state.base) {
+        let (candidate, key) = match issue(
+            state.trust.as_ref(),
+            agent,
+            Some(page.url.clone()),
+            &state.base,
+        )
+        .await
+        {
             Ok(value) => value,
-            Err(_) => return failure(StatusCode::INTERNAL_SERVER_ERROR, "card_generation_failed"),
+            Err(error) => {
+                tracing::warn!(target: "calendar::trust", event = "card_signing_failed", tenant = %id, code = %error);
+                return failure(StatusCode::SERVICE_UNAVAILABLE, "card_generation_failed");
+            }
         };
-        match state.store.create(&candidate, &key).await {
+        match state.store.create(&candidate, &key.encode()).await {
             Ok(true) => {
-                tracing::info!(event="identity_created",tenant=%id);
+                tracing::info!(event="identity_created",tenant=%id, card_digest=%candidate.card_digest);
                 candidate
             }
             Ok(false) => match state.store.get(&id).await {
@@ -164,7 +208,16 @@ pub async fn create(
     if record.booking_page_url.as_deref() != Some(page.url.as_str()) {
         return failure(StatusCode::CONFLICT, "booking_page_identity_conflict");
     }
-    publish_record(&state, record).await
+    if !record.published {
+        // Records created before publication became immediate.
+        if state.store.publish(&record.agent.id).await.is_err() {
+            return failure(StatusCode::SERVICE_UNAVAILABLE, "storage_unavailable");
+        }
+        record.published = true;
+    } else {
+        tracing::info!(event="identity_reused",tenant=%record.agent.id);
+    }
+    Json(view(&state, &record)).into_response()
 }
 
 /// Live meeting metadata only; never expose attendee contact details here.

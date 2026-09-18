@@ -97,7 +97,7 @@ async fn json_logs_distinguish_sdk_and_app_without_mixing_concurrent_traces() {
     let trace_b = a2a::new_message_id();
     let operation = |peer: &str| {
         json!([{"data":{
-            "operation":"find_common_slot", "peer":format!("urn:aithos:calendar:agent:{peer}"), "duration_minutes":30
+            "operation":"find_common_slot", "peer":format!("urn:air:127.0.0.1:agent:{peer}"), "duration_minutes":30
         }}])
     };
     let (alice, bob) = futures::join!(
@@ -168,6 +168,22 @@ async fn json_logs_distinguish_sdk_and_app_without_mixing_concurrent_traces() {
         let peer_call = events.iter().find(|e| e["event"] == "peer_call").unwrap();
         assert_eq!(peer_call["target"], "calendar::discovery");
         assert_eq!(peer_call["recipient_tenant"], peer);
+        // The trust chain is visible step by step, under its own target.
+        for step in [
+            "catalog_fetched",
+            "catalog_signature_verified",
+            "manifest_verified",
+            "card_digest_verified",
+            "card_signature_verified",
+            "peer_verified",
+        ] {
+            let event = events
+                .iter()
+                .find(|e| e["event"] == step)
+                .unwrap_or_else(|| panic!("{step} for {trace}"));
+            assert_eq!(event["target"], "calendar::trust");
+            assert_eq!(event["span"]["tenant"], caller);
+        }
     }
     assert!(logs.iter().any(|e| e["span"]["trace_id"] == unknown_trace
         && e["target"] == "a2a_server::middleware"

@@ -26,7 +26,8 @@ tracing-subscriber = { version = "=0.3.23", features = ["json", "env-filter"] }
 
 aws-config = { version = "=1.8.13", default-features = false, features = ["behavior-version-latest", "rt-tokio", "default-https-client"] }
 aws-sdk-dynamodb = { version = "=1.117.0", default-features = false, features = ["rt-tokio", "default-https-client"] }
-a2a-card = { package = "aithos-a2a-card", version = "=0.2.0" }
+serde_jcs = "=0.2.0"
+base64ct = { version = "=1.8.3", features = ["alloc"] }
 p256 = { version = "=0.13.2", features = ["ecdsa"] }
 rand_core = { version = "=0.6.4", features = ["getrandom"] }
 sha2 = "=0.10.9"
@@ -42,7 +43,8 @@ aws-sdk-bedrockruntime = { version = "=1.120.0", default-features = false, featu
 aws-sdk-sqs = { version = "=1.94.0", default-features = false, features = ["rt-tokio", "default-https-client"] }
 
 [dev-dependencies]
-registry-core = { package = "aithos-registry-core", version = "=0.2.0" }
+ai-catalog-validate = "=0.2.1"
+ai-catalog-trust = "=0.2.1"
 tower = { version = "0.5", features = ["util"] }
 
 [profile.release]
