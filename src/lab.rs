@@ -550,12 +550,13 @@ async fn caller_cases(state: &LabState, records: &[Record], trace_id: &str) -> V
     // does not mint: a valid signature then stops at the capability check,
     // which is the evidence that the signature is checked first.
     let account = callee.agent.google_account;
-    let cases: [(
-        &str,
-        Option<(&crate::trust::AgentKey, &str)>,
-        Option<&str>,
-        &str,
-    ); 4] = [
+    type Case<'a> = (
+        &'a str,
+        Option<(&'a crate::trust::AgentKey, &'a str)>,
+        Option<&'a str>,
+        &'a str,
+    );
+    let cases: [Case; 4] = [
         (
             "unsigned-caller",
             None,
