@@ -10,7 +10,8 @@ resource "aws_iam_role_policy" "lambda_agents" {
       Condition = { "ForAllValues:StringEquals" = { "dynamodb:Attributes" = ["id", "record", "published", "signing_key"] }, "Null" = { "dynamodb:Attributes" = "false" } }
     },
     {
-      Effect   = "Allow", Action = ["dynamodb:PutItem", "dynamodb:UpdateItem"],
+      # DeleteItem: account deletion (DELETE /account) removes the agent.
+      Effect   = "Allow", Action = ["dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem"],
       Resource = "arn:aws:dynamodb:${local.region}:${local.account}:table/${local.name}-agents"
     }
   ] })

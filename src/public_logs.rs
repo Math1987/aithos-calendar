@@ -76,6 +76,7 @@ pub const EVENTS: &[&str] = &[
     "connected_peer_call",
     "identity_created",
     "identity_reused",
+    "account_deleted",
     "storage_error",
     "agent_job_retry",
 ];

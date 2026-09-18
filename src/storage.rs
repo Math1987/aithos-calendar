@@ -56,6 +56,8 @@ pub trait AgentStore: Send + Sync {
     /// refreshed manifest). The signing key is untouched.
     async fn update(&self, record: &Record) -> Result<(), StoreError>;
     async fn published(&self) -> Result<Vec<Record>, StoreError>;
+    /// Remove an agent, its card and its signing key. Absent is success.
+    async fn delete(&self, id: &str) -> Result<(), StoreError>;
 }
 
 #[derive(Default)]
@@ -123,6 +125,10 @@ impl AgentStore for MemoryStore {
         let published = current.published;
         *current = record.clone();
         current.published = published;
+        Ok(())
+    }
+    async fn delete(&self, id: &str) -> Result<(), StoreError> {
+        self.0.lock().map_err(|_| StoreError)?.remove(id);
         Ok(())
     }
     async fn published(&self) -> Result<Vec<Record>, StoreError> {
@@ -252,6 +258,16 @@ impl AgentStore for DynamoStore {
             .send()
             .await
             .map_err(|e| failed("update_item", e.as_service_error().and_then(|v| v.code())))?;
+        Ok(())
+    }
+    async fn delete(&self, id: &str) -> Result<(), StoreError> {
+        self.client
+            .delete_item()
+            .table_name(&self.table)
+            .key("id", AttributeValue::S(id.into()))
+            .send()
+            .await
+            .map_err(|e| failed("delete_item", e.as_service_error().and_then(|v| v.code())))?;
         Ok(())
     }
     async fn published(&self) -> Result<Vec<Record>, StoreError> {

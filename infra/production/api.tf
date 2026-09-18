@@ -63,7 +63,7 @@ resource "aws_apigatewayv2_api" "api" {
   cors_configuration {
     allow_credentials = true
     allow_origins     = ["https://${local.website_domain}"]
-    allow_methods     = ["GET", "POST", "OPTIONS"]
+    allow_methods     = ["GET", "POST", "DELETE", "OPTIONS"]
     allow_headers     = ["content-type", "a2a-version"]
     max_age           = 300
   }
@@ -124,6 +124,7 @@ locals {
     auth_me             = { method = "GET", path = "/auth/me", invoke_path = "/auth/me" }
     auth_logout         = { method = "POST", path = "/auth/logout", invoke_path = "/auth/logout" }
     auth_agent          = { method = "POST", path = "/auth/agent", invoke_path = "/auth/agent" }
+    account_delete      = { method = "DELETE", path = "/account", invoke_path = "/account" }
     catalog             = { method = "GET", path = "/.well-known/ai-catalog.json", invoke_path = "/.well-known/ai-catalog.json" }
     schedule            = { method = "GET", path = "/agents/{tenant}/schedule", invoke_path = "/agents/*/schedule" }
     cards               = { method = "GET", path = "/agents/{tenant}/agent-card.json", invoke_path = "/agents/*/agent-card.json" }

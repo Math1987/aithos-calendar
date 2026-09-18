@@ -10,7 +10,7 @@ use axum::{
     http::{HeaderMap, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Redirect, Response},
-    routing::{get, post},
+    routing::{delete, get, post},
 };
 use rand_core::{OsRng, RngCore};
 use serde::{Deserialize, Serialize};
@@ -159,6 +159,7 @@ pub fn router(state: Auth) -> Router {
         .route("/auth/me", get(me))
         .route("/auth/logout", post(logout))
         .route("/auth/agent", post(agent))
+        .route("/account", delete(delete_account))
         .layer(axum::extract::DefaultBodyLimit::max(1024))
         .layer(middleware::from_fn(private_response))
         .with_state(Arc::new(state))
@@ -389,13 +390,57 @@ pub(crate) async fn current(s: &Auth, headers: &HeaderMap) -> Result<Account, Re
     let account_key = session.value["account_key"]
         .as_str()
         .ok_or_else(unavailable)?;
-    let account = s
+    let Some(account) = s
         .store
         .get(account_key, now())
         .await
         .map_err(|_| unavailable())?
-        .ok_or_else(unavailable)?;
+    else {
+        // The account was deleted: this session is stale, not the server.
+        let _ = s.store.delete(&key("session", &token)).await;
+        return Err(error(StatusCode::UNAUTHORIZED, "sign_in_required"));
+    };
     serde_json::from_value(account.value).map_err(|_| unavailable())
+}
+/// `DELETE /account`: revoke the Google grant, then remove the calendar
+/// connection, the agent (card, key and catalog entry), the display name,
+/// the account and this session. Every step tolerates an absent row, so a
+/// retry after a partial failure completes the deletion. Bookings already
+/// written to Google Calendars are events the people own; they stay.
+async fn delete_account(State(s): State<Arc<Auth>>, headers: HeaderMap) -> Response {
+    if !origin_ok(&s, &headers) {
+        return error(StatusCode::FORBIDDEN, "invalid_origin");
+    }
+    let account = match current(&s, &headers).await {
+        Ok(a) => a,
+        Err(e) => return e,
+    };
+    if let Some(service) = &s.connected
+        && let Err(code) = service.calendars.revoke(&account.id).await
+    {
+        return error(StatusCode::SERVICE_UNAVAILABLE, code);
+    }
+    if s.agents.delete(&account.id).await.is_err() {
+        return unavailable();
+    }
+    let session = cookie(&headers, SESSION_COOKIE).unwrap_or_default();
+    let session_key = key("session", &session);
+    let account_key = match s.store.get(&session_key, now()).await {
+        Ok(Some(row)) => row.value["account_key"].as_str().map(str::to_owned),
+        Ok(None) => None,
+        Err(_) => return unavailable(),
+    };
+    let mut rows = vec![format!("profile:{}", account.id), session_key];
+    rows.extend(account_key);
+    for row in rows {
+        if s.store.delete(&row).await.is_err() {
+            return unavailable();
+        }
+    }
+    tracing::info!(event = "account_deleted", tenant = %account.id);
+    let mut response = StatusCode::NO_CONTENT.into_response();
+    set_cookie(&mut response, SESSION_COOKIE, "", 0);
+    response
 }
 async fn me(State(s): State<Arc<Auth>>, headers: HeaderMap) -> Response {
     match current(&s, &headers).await {

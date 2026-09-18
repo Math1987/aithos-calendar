@@ -525,3 +525,68 @@ async fn autonomous_task_is_idempotent_and_private_to_the_requester() {
     server.abort();
     a2a.abort();
 }
+#[tokio::test]
+async fn account_deletion_removes_everything_and_is_idempotent() {
+    let (s, _, server) = fixture().await;
+    let cookie = login(&s, "subject-gone").await;
+    let profile = value(call(&s, "/auth/me", "GET", Some(&cookie), None).await).await;
+    let id = profile["id"].as_str().unwrap().to_owned();
+    value(call(&s, "/auth/agent", "POST", Some(&cookie), Some(&s.website)).await).await;
+    assert_eq!(s.agents.published().await.unwrap().len(), 1);
+    assert!(s.agents.signing_key(&id).await.unwrap().is_some());
+
+    // A cross-origin or anonymous request cannot delete anything.
+    assert_eq!(
+        call(
+            &s,
+            "/account",
+            "DELETE",
+            Some(&cookie),
+            Some("https://evil.test")
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        call(&s, "/account", "DELETE", None, Some(&s.website))
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+
+    let response = call(&s, "/account", "DELETE", Some(&cookie), Some(&s.website)).await;
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    assert!(response_cookie(&response, SESSION_COOKIE).ends_with('='));
+    assert!(s.agents.get(&id).await.unwrap().is_none());
+    assert!(s.agents.signing_key(&id).await.unwrap().is_none());
+    assert!(s.agents.published().await.unwrap().is_empty());
+    assert!(
+        s.store
+            .get(&format!("profile:{id}"), now())
+            .await
+            .unwrap()
+            .is_none()
+    );
+    // The session is gone and so is the account behind it.
+    assert_eq!(
+        call(&s, "/auth/me", "GET", Some(&cookie), None)
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        call(&s, "/account", "DELETE", Some(&cookie), Some(&s.website))
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    // Signing in again starts from nothing: a new identity, a new agent.
+    let again = login(&s, "subject-gone").await;
+    let fresh = value(call(&s, "/auth/me", "GET", Some(&again), None).await).await;
+    assert_ne!(fresh["id"], id);
+    value(call(&s, "/auth/agent", "POST", Some(&again), Some(&s.website)).await).await;
+    assert_eq!(s.agents.published().await.unwrap().len(), 1);
+    assert!(s.agents.get(&id).await.unwrap().is_none());
+    server.abort();
+}

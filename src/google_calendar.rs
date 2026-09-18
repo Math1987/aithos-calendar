@@ -41,6 +41,11 @@ pub trait Calendars: Send + Sync {
         scopes: &[String],
     ) -> Result<()>;
     async fn disconnect(&self, id: &str) -> Result<()>;
+    /// Tell Google the grant is no longer wanted, then forget it. A grant
+    /// Google no longer knows counts as revoked; no token means nothing to do.
+    async fn revoke(&self, id: &str) -> Result<()> {
+        self.disconnect(id).await
+    }
     async fn availability(&self, id: &str, window: &Window) -> Result<Availability>;
     async fn email(&self, id: &str) -> Result<String>;
     async fn event(&self, id: &str, event_id: &str, slot: &Slot) -> Result<Option<Event>>;
@@ -106,7 +111,8 @@ impl GoogleCalendar {
             .ok_or("calendar_connection_required")?;
         serde_json::from_value(row.value).map_err(|_| "storage_unavailable")
     }
-    async fn token(&self, id: &str) -> Result<String> {
+    /// The stored refresh token, decrypted for one use.
+    async fn refresh_token(&self, id: &str) -> Result<String> {
         let connection = self.connection(id).await?;
         let decoded = crate::trust::jose::b64url_decode(&connection.cipher)
             .map_err(|_| "calendar_connection_required")?;
@@ -120,9 +126,13 @@ impl GoogleCalendar {
             .send()
             .await
             .map_err(|_| "calendar_unavailable")?;
-        let refresh =
-            std::str::from_utf8(plain.plaintext().ok_or("calendar_unavailable")?.as_ref())
-                .map_err(|_| "calendar_unavailable")?;
+        std::str::from_utf8(plain.plaintext().ok_or("calendar_unavailable")?.as_ref())
+            .map(str::to_owned)
+            .map_err(|_| "calendar_unavailable")
+    }
+    async fn token(&self, id: &str) -> Result<String> {
+        let refresh = self.refresh_token(id).await?;
+        let refresh = refresh.as_str();
         let secret = self
             .secret
             .get_or_try_init(|| async {
@@ -430,6 +440,28 @@ impl Calendars for GoogleCalendar {
             .delete(&format!("calendar:{id}"))
             .await
             .map_err(|_| "storage_unavailable")
+    }
+    async fn revoke(&self, id: &str) -> Result<()> {
+        match self.refresh_token(id).await {
+            Ok(refresh) => {
+                let response = self
+                    .http
+                    .post("https://oauth2.googleapis.com/revoke")
+                    .form(&[("token", refresh.as_str())])
+                    .send()
+                    .await
+                    .map_err(|_| "calendar_unavailable")?;
+                // 400 invalid_token: already revoked or expired, so gone.
+                if !(response.status().is_success() || response.status() == 400) {
+                    return Err("calendar_unavailable");
+                }
+            }
+            // Nothing stored, or a ciphertext this key cannot open: nothing
+            // to revoke, but the row must still go.
+            Err("calendar_connection_required") => {}
+            Err(error) => return Err(error),
+        }
+        self.disconnect(id).await
     }
     async fn email(&self, id: &str) -> Result<String> {
         Ok(self.connection(id).await?.email)
