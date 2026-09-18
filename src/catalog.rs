@@ -32,7 +32,7 @@ const REFRESH_MARGIN: chrono::Duration = chrono::Duration::days(7);
 #[derive(Default)]
 pub struct Signed(Mutex<Option<(String, Arc<Vec<u8>>)>>);
 
-fn entry(state: &Identities, record: &Record) -> Value {
+pub(crate) fn entry(state: &Identities, record: &Record) -> Value {
     let agent = &record.agent;
     json!({
         "identifier": state.publisher.urn(&agent.id),

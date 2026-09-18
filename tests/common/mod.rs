@@ -17,6 +17,7 @@ pub struct Fixture {
     pub base: String,
     pub trust: Arc<dyn TrustProvider>,
     pub operator: Arc<Operator>,
+    pub lab: Arc<calendar::lab::Lab>,
     pub store: Arc<MemoryStore>,
     pub keys: HashMap<String, AgentKey>,
 }
@@ -37,7 +38,9 @@ pub fn mock_agent(id: &str, slots: &[(&str, &str)]) -> Agent {
 impl Fixture {
     /// Records for `agents`, each signed with its own fresh key.
     pub async fn new(base: &str, agents: Vec<Agent>) -> Self {
-        let trust: Arc<dyn TrustProvider> = Arc::new(LocalTrust::ephemeral(base));
+        let lab = Arc::new(calendar::lab::Lab::from_seed("integration-tests"));
+        let trust: Arc<dyn TrustProvider> =
+            Arc::new(LocalTrust::ephemeral(base).with_published_key(lab.next_jwk()));
         let store = Arc::new(MemoryStore::default());
         let mut keys = HashMap::new();
         for agent in agents {
@@ -52,6 +55,7 @@ impl Fixture {
             base: base.trim_end_matches('/').into(),
             trust,
             operator: Arc::new(Operator::ephemeral(base)),
+            lab,
             store,
             keys,
         }
@@ -60,6 +64,16 @@ impl Fixture {
     pub fn config(&self) -> calendar::Config {
         calendar::Config::new(&self.base, self.trust.clone(), self.store.clone())
             .with_operator(self.operator.clone())
+            .with_lab(self.lab.clone())
+    }
+    /// Start the application on a loopback listener.
+    pub async fn serve(&self, config: calendar::Config) -> (String, tokio::task::JoinHandle<()>) {
+        let listener = tokio::net::TcpListener::bind(self.base.trim_start_matches("http://"))
+            .await
+            .unwrap();
+        let app = calendar::build(config).unwrap();
+        let job = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        (self.base.clone(), job)
     }
     pub fn publisher(&self) -> Publisher {
         Publisher::from_base(&self.base)

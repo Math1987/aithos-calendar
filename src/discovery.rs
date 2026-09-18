@@ -380,13 +380,6 @@ impl PeerDirectory {
             .map_err(PeerError::from)
             .inspect_err(rejected)?;
             tracing::info!(target: "calendar::trust", event = "manifest_verified", peer, trace_id, guarantor = identity, card_digest = %binding.digest);
-            if policy >= Policy::VerifiedAccount
-                && !verify::has_attestation(manifest, crate::trust::ACCOUNT_VERIFIED)
-            {
-                let error: PeerError = verify::VerifyError::AttestationMissing.into();
-                rejected(&error);
-                return Err(error);
-            }
             binding
         } else {
             let binding =
@@ -417,7 +410,15 @@ impl PeerDirectory {
             |error| tracing::warn!(target: "calendar::trust", event = "card_signature_rejected", peer, trace_id, code = error.code()),
         )?;
         tracing::info!(target: "calendar::trust", event = "card_signature_verified", peer, trace_id, kid = header.kid());
-        // 5. Only now the SDK view of the card.
+        // 5. Policy attestations, once the whole chain is intact.
+        if policy >= Policy::VerifiedAccount
+            && !verify::has_attestation(manifest, crate::trust::ACCOUNT_VERIFIED)
+        {
+            let error: PeerError = verify::VerifyError::AttestationMissing.into();
+            rejected(&error);
+            return Err(error);
+        }
+        // 6. Only now the SDK view of the card.
         let mut card = card::sdk_view(raw).map_err(|_| PeerError::InvalidCard)?;
         // Only JSON-RPC interfaces for this tenant on the agent origin remain;
         // the SDK picks among them.

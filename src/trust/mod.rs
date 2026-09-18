@@ -80,6 +80,19 @@ impl MemorySigner {
     pub fn random() -> Self {
         Self::from_key(SigningKey::random(&mut rand_core::OsRng))
     }
+    /// A key derived from a seed, so every process of one deployment holds
+    /// the same lab keys. Never used for a production role.
+    pub fn from_seed(seed: &str, purpose: &str) -> Self {
+        use sha2::Digest;
+        // Retry on the (about 2^-32) chance that the digest is not a scalar.
+        for counter in 0u32.. {
+            let scalar = sha2::Sha256::digest(format!("{purpose}:{counter}:{seed}").as_bytes());
+            if let Ok(key) = SigningKey::from_slice(&scalar) {
+                return Self::from_key(key);
+            }
+        }
+        unreachable!("a valid scalar is found")
+    }
     pub fn from_key(key: SigningKey) -> Self {
         let mut jwk = jose::public_jwk(key.verifying_key());
         let kid = jose::thumbprint(&jwk).expect("public JWK canonicalizes");
@@ -88,6 +101,10 @@ impl MemorySigner {
     }
     pub fn verifying_key(&self) -> &VerifyingKey {
         self.key.verifying_key()
+    }
+    /// The private key, for the lab's impostor agent only.
+    pub fn signing_key(&self) -> &SigningKey {
+        &self.key
     }
 }
 #[async_trait]
@@ -196,6 +213,16 @@ pub trait TrustProvider: Send + Sync {
         card_bytes: &[u8],
         claims: &Claims,
     ) -> Result<Value, TrustError>;
+    /// Same, with an explicit validity window. Only the scenario lab uses
+    /// it, to obtain a genuinely signed but expired manifest.
+    async fn manifest_dated(
+        &self,
+        entry: &EntryDraft,
+        card_bytes: &[u8],
+        claims: &Claims,
+        issued_at: chrono::DateTime<chrono::Utc>,
+        expires_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Value, TrustError>;
 }
 
 async fn sign_detached(signer: &dyn OperatorSigner, payload: &[u8]) -> Result<String, TrustError> {
@@ -265,6 +292,8 @@ impl Operator {
 pub struct LocalTrust {
     identity: String,
     signer: Arc<dyn OperatorSigner>,
+    /// Further public keys published in the JWK Set (a rotation successor).
+    extra_keys: Vec<Value>,
     /// Validity of a freshly signed manifest.
     pub manifest_ttl: chrono::Duration,
 }
@@ -282,12 +311,34 @@ impl LocalTrust {
         Self {
             identity: Self::identity_for(base_url),
             signer,
+            extra_keys: Vec::new(),
             manifest_ttl: chrono::Duration::days(90),
         }
     }
     /// A guarantor with a random in-memory key (tests, local runs).
     pub fn ephemeral(base_url: &str) -> Self {
         Self::new(base_url, Arc::new(MemorySigner::random()))
+    }
+    /// Publish an additional public key (with `kid`) in the JWK Set: how a
+    /// rotation successor becomes verifiable before it signs anything.
+    pub fn with_published_key(mut self, jwk: Value) -> Self {
+        self.extra_keys.push(jwk);
+        self
+    }
+    /// A guarantor that signs with `signer` under this guarantor's identity
+    /// (a rotation successor, or a lab impostor).
+    pub fn signing_as(&self, signer: Arc<dyn OperatorSigner>) -> Self {
+        Self {
+            identity: self.identity.clone(),
+            signer,
+            extra_keys: Vec::new(),
+            manifest_ttl: self.manifest_ttl,
+        }
+    }
+    /// Same signer under another identity (a lab guarantor nobody pins).
+    pub fn with_identity(mut self, identity: String) -> Self {
+        self.identity = identity;
+        self
     }
 }
 
@@ -297,7 +348,9 @@ impl TrustProvider for LocalTrust {
         &self.identity
     }
     fn jwks(&self) -> Value {
-        json!({"keys": [self.signer.public_jwk()]})
+        let mut keys = vec![self.signer.public_jwk()];
+        keys.extend(self.extra_keys.iter().cloned());
+        json!({"keys": keys})
     }
     async fn manifest_for(
         &self,
@@ -306,15 +359,26 @@ impl TrustProvider for LocalTrust {
         claims: &Claims,
     ) -> Result<Value, TrustError> {
         let now = chrono::Utc::now();
+        self.manifest_dated(entry, card_bytes, claims, now, now + self.manifest_ttl)
+            .await
+    }
+    async fn manifest_dated(
+        &self,
+        entry: &EntryDraft,
+        card_bytes: &[u8],
+        claims: &Claims,
+        issued_at: chrono::DateTime<chrono::Utc>,
+        expires_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Value, TrustError> {
         let mut manifest = manifest::draft(
             &self.identity,
             entry,
             &jose::digest(card_bytes),
-            now,
-            now + self.manifest_ttl,
+            issued_at,
+            expires_at,
         );
         if claims.account_verified {
-            manifest["attestations"] = json!([manifest::account_attestation(now)]);
+            manifest["attestations"] = json!([manifest::account_attestation(issued_at)]);
         }
         let signature =
             sign_detached(self.signer.as_ref(), &manifest::signing_payload(&manifest)?).await?;
@@ -362,6 +426,7 @@ pub async fn operator_from_env(
 pub async fn from_env(
     base_url: &str,
     kms: Option<&aws_sdk_kms::Client>,
+    lab: &crate::lab::Lab,
 ) -> Result<Arc<dyn TrustProvider>, lambda_http::Error> {
     let provider = std::env::var("TRUST_PROVIDER").unwrap_or_else(|_| "local".into());
     if provider != "local" {
@@ -369,8 +434,8 @@ pub async fn from_env(
             format!("Unknown TRUST_PROVIDER `{provider}`; only `local` is implemented").into(),
         );
     }
-    Ok(Arc::new(LocalTrust::new(
-        base_url,
-        signer_from_env("TRUST_KMS_KEY_ID", kms).await?,
-    )))
+    Ok(Arc::new(
+        LocalTrust::new(base_url, signer_from_env("TRUST_KMS_KEY_ID", kms).await?)
+            .with_published_key(lab.next_jwk()),
+    ))
 }

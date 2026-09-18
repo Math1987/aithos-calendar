@@ -18,7 +18,8 @@ async fn main() -> Result<(), Error> {
     });
     let app = if listen.is_some() {
         // Local run: in-memory fixtures, ephemeral operator key.
-        let trust = calendar::trust::from_env(&base_url, None).await?;
+        let lab = std::sync::Arc::new(calendar::lab::Lab::from_env());
+        let trust = calendar::trust::from_env(&base_url, None, &lab).await?;
         let operator = calendar::trust::operator_from_env(&base_url, None).await?;
         let store = std::sync::Arc::new(
             calendar::storage::MemoryStore::fixtures(&base_url, trust.as_ref()).await,
@@ -26,6 +27,7 @@ async fn main() -> Result<(), Error> {
         calendar::build(
             calendar::Config::new(&base_url, trust, store)
                 .with_operator(operator)
+                .with_lab(lab)
                 .with_catalog(&catalog_url),
         )?
     } else {
@@ -44,7 +46,8 @@ async fn main() -> Result<(), Error> {
             table,
         ));
         let kms = aws_sdk_kms::Client::new(&config);
-        let trust = calendar::trust::from_env(&base_url, Some(&kms)).await?;
+        let lab = std::sync::Arc::new(calendar::lab::Lab::from_env());
+        let trust = calendar::trust::from_env(&base_url, Some(&kms), &lab).await?;
         let operator = calendar::trust::operator_from_env(&base_url, Some(&kms)).await?;
         let policies = calendar::trust::Policies::from_env()?;
         let trusted_guarantors: Vec<String> = std::env::var("TRUSTED_GUARANTORS")
@@ -146,6 +149,7 @@ async fn main() -> Result<(), Error> {
         let app = calendar::build(
             calendar::Config::new(&base_url, trust.clone(), store.clone())
                 .with_operator(operator)
+                .with_lab(lab)
                 .with_catalog(&catalog_url)
                 .with_website(&website)
                 .with_trusted_guarantors(trusted_guarantors)

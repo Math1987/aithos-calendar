@@ -14,6 +14,7 @@ pub mod discovery;
 pub mod google_calendar;
 pub mod google_identity;
 pub mod identities;
+pub mod lab;
 pub mod logging;
 mod scheduling;
 pub mod storage;
@@ -51,14 +52,18 @@ pub struct Config {
     pub trusted_guarantors: Vec<String>,
     /// Trust level required per outgoing operation.
     pub policies: trust::Policies,
+    /// Scenario lab keys (successor and impostor guarantor keys).
+    pub lab: Arc<lab::Lab>,
 }
 
 impl Config {
     /// Fixture configuration: Alice and Bob signed by an ephemeral key.
     pub async fn fixtures(base_url: &str) -> Self {
-        let trust: Arc<dyn TrustProvider> = Arc::new(trust::LocalTrust::ephemeral(base_url));
+        let lab = Arc::new(lab::Lab::from_env());
+        let trust: Arc<dyn TrustProvider> =
+            Arc::new(trust::LocalTrust::ephemeral(base_url).with_published_key(lab.next_jwk()));
         let store = Arc::new(storage::MemoryStore::fixtures(base_url, trust.as_ref()).await);
-        Self::new(base_url, trust, store)
+        Self::new(base_url, trust, store).with_lab(lab)
     }
     pub fn new(
         base_url: &str,
@@ -71,6 +76,7 @@ impl Config {
             website: base_url.clone(),
             trusted_guarantors: vec![trust.identity().to_owned()],
             policies: trust::Policies::default(),
+            lab: Arc::new(lab::Lab::from_env()),
             operator: Arc::new(trust::Operator::ephemeral(&base_url)),
             trust,
             store,
@@ -115,6 +121,10 @@ impl Config {
         self.policies = policies;
         self
     }
+    pub fn with_lab(mut self, lab: Arc<lab::Lab>) -> Self {
+        self.lab = lab;
+        self
+    }
     /// The discovery client this configuration implies.
     pub fn directory(&self) -> Result<discovery::PeerDirectory, lambda_http::Error> {
         discovery::PeerDirectory::new(
@@ -143,6 +153,27 @@ pub fn build(config: Config) -> Result<Router, lambda_http::Error> {
         reader: config.reader.clone(),
         signed: catalog::Signed::default(),
     });
+    let lab_state = lab::LabState {
+        identities: state.clone(),
+        lab: config.lab,
+        trusted_guarantors: config.trusted_guarantors.clone(),
+    };
+    let lab_routes = Router::new()
+        .route("/lab", get(lab::index))
+        .route("/lab/report", get(lab::report))
+        .route(
+            "/lab/rogue/trust-provider/.well-known/jwks.json",
+            get(lab::rogue_jwks),
+        )
+        .route(
+            "/lab/{scenario}/.well-known/ai-catalog.json",
+            get(lab::serve_catalog),
+        )
+        .route(
+            "/lab/{scenario}/agents/{tenant}/agent-card.json",
+            get(lab::serve_card),
+        )
+        .with_state(lab_state);
     let onboarding = Router::new()
         .route("/agents", post(identities::create))
         .layer(DefaultBodyLimit::max(4 * 1024))
@@ -170,6 +201,7 @@ pub fn build(config: Config) -> Result<Router, lambda_http::Error> {
     Ok(Router::new()
         .route("/health", get(health))
         .merge(routes)
+        .merge(lab_routes)
         .nest_service("/a2a", protocol))
 }
 
