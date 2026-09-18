@@ -438,6 +438,17 @@ pub async fn report(State(state): State<LabState>, Query(query): Query<ReportQue
                 .into_response();
         }
     };
+    // One run is ~60 self-requests and a KMS signature per record per
+    // scenario, unauthenticated: a global window keeps it from becoming an
+    // amplifier.
+    if let Err(refused) = state
+        .identities
+        .limits
+        .hit(crate::limits::LAB_RUNS_GLOBAL, "all")
+        .await
+    {
+        return refused.into_response();
+    }
     let trace_id = a2a::new_message_id();
     let outcome = tokio::time::timeout(
         std::time::Duration::from_secs(25),

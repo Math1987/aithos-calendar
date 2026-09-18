@@ -172,6 +172,7 @@ struct Start {
 async fn start(
     State(s): State<Arc<Auth>>,
     headers: HeaderMap,
+    client: crate::limits::ClientIp,
     Query(input): Query<Start>,
 ) -> Response {
     if input
@@ -180,6 +181,13 @@ async fn start(
         .is_some_and(|id| !crate::valid_tenant(id))
     {
         return error(StatusCode::BAD_REQUEST, "invalid_host");
+    }
+    // Each start writes a login row; keep an address from flooding them.
+    if let Err(refused) = crate::limits::Limits::new(s.store.clone())
+        .hit(crate::limits::LOGIN_STARTS_PER_IP, &client.0)
+        .await
+    {
+        return refused.into_response();
     }
     let account = if input.calendar {
         match current(&s, &headers).await {

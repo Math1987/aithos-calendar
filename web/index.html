@@ -421,6 +421,7 @@ async function accountPage(sharedHost) {
   const accountMessages = {
     ...messages,
     invalid_login:'This sign-in attempt expired or was already used. Please start again.',
+    rate_limited:'Too many requests for today from this account or for this host. Please try again later.',
     login_cancelled:'Google connection was cancelled. You can try again.',
     google_login_failed:'Google sign-in could not be completed. Please try again.',
     test_account_required:'This pilot is limited to the two configured test accounts.',

@@ -9,7 +9,8 @@ resource "aws_iam_role_policy" "lambda_auth" {
   role = aws_iam_role.lambda.id
   policy = jsonencode({ Version = "2012-10-17", Statement = [
     { Effect = "Allow", Action = ["secretsmanager:GetSecretValue"], Resource = aws_secretsmanager_secret.google_oauth.arn },
-    { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem"], Resource = "arn:aws:dynamodb:${local.region}:${local.account}:table/${local.name}-auth" }
+    # UpdateItem: the fixed-window rate-limit counters (src/limits.rs).
+    { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem", "dynamodb:UpdateItem"], Resource = "arn:aws:dynamodb:${local.region}:${local.account}:table/${local.name}-auth" }
   ] })
 }
 resource "aws_iam_role_policy" "deploy_auth" {

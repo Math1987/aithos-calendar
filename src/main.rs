@@ -147,6 +147,7 @@ async fn main() -> Result<(), Error> {
                 .with_operator(operator)
                 .with_lab(lab)
                 .with_public_logs(public_logs.clone())
+                .with_limits(calendar::limits::Limits::new(private_store.clone()))
                 .with_catalog(&catalog_url)
                 .with_website(&website)
                 .with_trusted_guarantors(trusted_guarantors)

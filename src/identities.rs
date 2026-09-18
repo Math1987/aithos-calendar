@@ -29,6 +29,7 @@ pub struct Identities {
     pub reader: Option<Arc<dyn crate::availability::AvailabilityReader>>,
     /// Cache of the last signed catalog (see `catalog.rs`).
     pub signed: crate::catalog::Signed,
+    pub limits: crate::limits::Limits,
 }
 
 pub fn card_url(base: &str, id: &str) -> String {
@@ -135,8 +136,16 @@ fn view(state: &Identities, record: &Record) -> Value {
 
 pub async fn create(
     State(state): State<Arc<Identities>>,
+    client: crate::limits::ClientIp,
     Json(definition): Json<Definition>,
 ) -> Response {
+    if let Err(refused) = state
+        .limits
+        .hit(crate::limits::AGENT_CREATION_PER_IP, &client.0)
+        .await
+    {
+        return refused.into_response();
+    }
     let page = match tokio::time::timeout(
         Duration::from_secs(5),
         state.pages.resolve(&definition.booking_page_url),
@@ -227,11 +236,19 @@ pub async fn create(
 /// Live meeting metadata only; never expose attendee contact details here.
 pub async fn schedule(
     State(state): State<Arc<Identities>>,
+    client: crate::limits::ClientIp,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Response {
     let response = async {
         if !crate::valid_tenant(&id) {
             return failure(StatusCode::NOT_FOUND, "unknown_agent");
+        }
+        if let Err(refused) = state
+            .limits
+            .hit(crate::limits::SCHEDULE_READS_PER_IP, &client.0)
+            .await
+        {
+            return refused.into_response();
         }
         let record = match state.store.get(&id).await {
             Ok(Some(r)) if r.published => r,

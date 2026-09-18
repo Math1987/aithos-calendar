@@ -15,6 +15,7 @@ pub mod google_calendar;
 pub mod google_identity;
 pub mod identities;
 pub mod lab;
+pub mod limits;
 pub mod logging;
 pub mod public_logs;
 mod scheduling;
@@ -57,6 +58,8 @@ pub struct Config {
     pub lab: Arc<lab::Lab>,
     /// The public log feed (sink + store).
     pub public_logs: public_logs::PublicLogs,
+    /// Rate limits (fixed windows on the private store; memory by default).
+    pub limits: limits::Limits,
 }
 
 impl Config {
@@ -81,6 +84,7 @@ impl Config {
             policies: trust::Policies::default(),
             lab: Arc::new(lab::Lab::from_env()),
             public_logs: public_logs::PublicLogs::memory(Arc::new(public_logs::Sink::default())),
+            limits: limits::Limits::new(Arc::new(auth_store::MemoryAuthStore::default())),
             operator: Arc::new(trust::Operator::ephemeral(&base_url)),
             trust,
             store,
@@ -133,6 +137,10 @@ impl Config {
         self.public_logs = logs;
         self
     }
+    pub fn with_limits(mut self, limits: limits::Limits) -> Self {
+        self.limits = limits;
+        self
+    }
     /// The discovery client this configuration implies.
     pub fn directory(&self) -> Result<discovery::PeerDirectory, lambda_http::Error> {
         Ok(discovery::PeerDirectory::new(
@@ -161,6 +169,7 @@ pub fn build(config: Config) -> Result<Router, lambda_http::Error> {
         pages: config.pages,
         reader: config.reader.clone(),
         signed: catalog::Signed::default(),
+        limits: config.limits.clone(),
     });
     let lab_state = lab::LabState {
         identities: state.clone(),
@@ -210,6 +219,10 @@ pub fn build(config: Config) -> Result<Router, lambda_http::Error> {
     let feed = Router::new()
         .route("/logs/events", get(public_logs::events))
         .with_state(config.public_logs.clone());
+    // The SDK router accepts 10 MiB bodies; a message here is a few KiB.
+    let protocol = Router::new()
+        .fallback_service(protocol)
+        .layer(DefaultBodyLimit::max(64 * 1024));
     Ok(Router::new()
         .route("/health", get(health))
         .merge(routes)

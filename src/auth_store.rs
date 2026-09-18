@@ -29,6 +29,9 @@ pub trait AuthStore: Send + Sync {
         now: i64,
     ) -> Result<Option<Entry>, AuthStoreError>;
     async fn delete(&self, id: &str) -> Result<(), AuthStoreError>;
+    /// Add one to a counter row that expires at `expires`, and return the
+    /// new count. Used for rate limits; the row is not an `Entry`.
+    async fn increment(&self, id: &str, expires: i64) -> Result<u64, AuthStoreError>;
 }
 #[derive(Default)]
 pub struct MemoryAuthStore(Mutex<HashMap<String, Entry>>);
@@ -77,6 +80,27 @@ impl AuthStore for MemoryAuthStore {
     async fn delete(&self, id: &str) -> Result<(), AuthStoreError> {
         self.0.lock().map_err(|_| AuthStoreError)?.remove(id);
         Ok(())
+    }
+    async fn increment(&self, id: &str, expires: i64) -> Result<u64, AuthStoreError> {
+        let mut rows = self.0.lock().map_err(|_| AuthStoreError)?;
+        let now = crate::auth::now();
+        let count = match rows.get(id) {
+            Some(row) if row.expires > now => row.value.as_u64().unwrap_or(0) + 1,
+            _ => 1,
+        };
+        let expires = match rows.get(id) {
+            Some(row) if row.expires > now => row.expires,
+            _ => expires,
+        };
+        rows.insert(
+            id.into(),
+            Entry {
+                value: serde_json::Value::from(count),
+                expires,
+                binding: String::new(),
+            },
+        );
+        Ok(count)
     }
 }
 pub struct DynamoAuthStore {
@@ -194,5 +218,49 @@ impl AuthStore for DynamoAuthStore {
             .await
             .map_err(|_| AuthStoreError)?;
         Ok(())
+    }
+    async fn increment(&self, id: &str, expires: i64) -> Result<u64, AuthStoreError> {
+        // The first hit sets the window's expiry; later hits keep it, so the
+        // counter is a fixed window that TTL cleanup removes afterwards. A
+        // window that already expired but was not cleaned up yet restarts.
+        let now = crate::auth::now();
+        let result = self
+            .client
+            .update_item()
+            .table_name(&self.table)
+            .key("id", AttributeValue::S(id.into()))
+            .update_expression("SET expires_at = :exp, #c = :one")
+            .condition_expression("attribute_not_exists(id) OR expires_at <= :now")
+            .expression_attribute_names("#c", "count")
+            .expression_attribute_values(":exp", AttributeValue::N(expires.to_string()))
+            .expression_attribute_values(":one", AttributeValue::N("1".into()))
+            .expression_attribute_values(":now", AttributeValue::N(now.to_string()))
+            .send()
+            .await;
+        match result {
+            Ok(_) => return Ok(1),
+            Err(e)
+                if e.as_service_error()
+                    .is_some_and(|e| e.is_conditional_check_failed_exception()) => {}
+            Err(_) => return Err(AuthStoreError),
+        }
+        let updated = self
+            .client
+            .update_item()
+            .table_name(&self.table)
+            .key("id", AttributeValue::S(id.into()))
+            .update_expression("ADD #c :one")
+            .condition_expression("expires_at > :now")
+            .expression_attribute_names("#c", "count")
+            .expression_attribute_values(":one", AttributeValue::N("1".into()))
+            .expression_attribute_values(":now", AttributeValue::N(now.to_string()))
+            .return_values(ReturnValue::AllNew)
+            .send()
+            .await
+            .map_err(|_| AuthStoreError)?;
+        updated
+            .attributes
+            .and_then(|a| a.get("count")?.as_n().ok()?.parse().ok())
+            .ok_or(AuthStoreError)
     }
 }

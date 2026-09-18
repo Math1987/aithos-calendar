@@ -234,6 +234,13 @@ async fn start(
         "gc{}",
         &crate::booking_api::digest(&format!("{}:{}", account.id, input.request_id))[..40]
     );
+    // Every distinct request id is a queued job: bound them per account.
+    if let Err(refused) = crate::limits::Limits::new(auth.store.clone())
+        .hit(crate::limits::TASKS_PER_ACCOUNT, &account.id)
+        .await
+    {
+        return refused.into_response();
+    }
     let key = format!("job:{id}");
     let job = Job {
         id: id.clone(),

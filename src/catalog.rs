@@ -23,7 +23,7 @@ use std::sync::{Arc, Mutex};
 
 pub const MEDIA_TYPE: &str = "application/ai-catalog+json";
 /// Both the discovery client and this server refuse larger documents.
-pub const MAX_BYTES: usize = 64 * 1024;
+pub const MAX_BYTES: usize = 1024 * 1024;
 /// A manifest is refreshed when less than this much validity remains.
 const REFRESH_MARGIN: chrono::Duration = chrono::Duration::days(7);
 

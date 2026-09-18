@@ -167,10 +167,32 @@ impl GoogleCalendar {
         response: std::result::Result<reqwest::Response, reqwest::Error>,
     ) -> Result<Value> {
         let response = response.map_err(|_| "calendar_unavailable")?;
-        if response.status() == 401 || response.status() == 403 {
-            return Err("calendar_reconnect_required");
+        let status = response.status();
+        if status == 401 || status == 403 {
+            // Google also answers 403 for quota and rate limits; only a
+            // permission problem should send the user back to consent.
+            let body: Value = response.json().await.unwrap_or(Value::Null);
+            let quota = body["error"]["errors"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|e| e["reason"].as_str())
+                .any(|reason| {
+                    matches!(
+                        reason,
+                        "rateLimitExceeded"
+                            | "userRateLimitExceeded"
+                            | "quotaExceeded"
+                            | "dailyLimitExceeded"
+                    )
+                });
+            return Err(if quota {
+                "calendar_unavailable"
+            } else {
+                "calendar_reconnect_required"
+            });
         }
-        if !response.status().is_success() {
+        if !status.is_success() {
             return Err("calendar_unavailable");
         }
         response.json().await.map_err(|_| "calendar_unavailable")

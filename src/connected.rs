@@ -223,6 +223,20 @@ impl Connected {
         if host == peer {
             return Err("same_account");
         }
+        // Once anyone can sign in, a proposal is both a free/busy probe of
+        // the host and an unsolicited event on their calendar: bound both
+        // sides per day.
+        let limits = crate::limits::Limits::new(self.store.clone());
+        for (limit, subject) in [
+            (crate::limits::PROPOSALS_PER_ACCOUNT, peer),
+            (crate::limits::INBOUND_PROPOSALS_PER_HOST, host),
+        ] {
+            match limits.hit(limit, subject).await {
+                Ok(()) => {}
+                Err(crate::limits::LimitError::Exceeded { .. }) => return Err("rate_limited"),
+                Err(crate::limits::LimitError::Unavailable) => return Err("storage_unavailable"),
+            }
+        }
         let record = self
             .agents
             .get(host)
@@ -508,6 +522,7 @@ async fn propose(
             Json(json!({"status":"slot_found","proposal":p,"reserved":false})).into_response()
         }
         Ok(Ok(None)) => Json(json!({"status":"no_common_slot","reserved":false})).into_response(),
+        Ok(Err("rate_limited")) => error(StatusCode::TOO_MANY_REQUESTS, "rate_limited"),
         Ok(Err(code)) => error(StatusCode::CONFLICT, code),
         Err(_) => error(StatusCode::GATEWAY_TIMEOUT, "timeout"),
     }

@@ -114,7 +114,7 @@ The JWK Set is served in canonical form so the digest is reproducible.
   sends the same `Link` header and declares `<link rel="ai-catalog">`.
 - The signed document is cached per process while its unsigned content is
   unchanged, so the `ETag` is stable between changes. Size is bounded at
-  64 KiB; a larger catalog is refused rather than truncated.
+  1 MiB (about 600 account-linked entries); a larger catalog is refused rather than truncated.
 
 Conformance: `ai-catalog-validate` reports **Trusted** (Level 3) and
 `ai-catalog-trust::analyze_catalog` reports no error (`tests/identities.rs`,
@@ -126,7 +126,7 @@ these payloads byte for byte (`src/trust/manifest.rs::sdk_equivalence`).
 Given a peer identifier `urn:air:<publisher>:agent:<id>` and a policy (§6):
 
 1. **Catalog.** Fetch the configured catalog URL (HTTPS or loopback, no
-   redirects, 3 s, ≤ 64 KiB). `specVersion` must be `1.x`. Resolve the
+   redirects, 3 s, ≤ 1 MiB). `specVersion` must be `1.x`. Resolve the
    operator key set from `host.identifier`, which must be an HTTPS JWK Set
    **on the catalog's origin** (`untrusted_operator` otherwise). If a
    `signature` is present it must verify (`catalog_signature_invalid`); if it

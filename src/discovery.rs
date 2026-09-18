@@ -113,7 +113,7 @@ pub struct PeerDirectory {
 }
 
 const KEYS_TTL: Duration = Duration::from_secs(300);
-const MAX_DOCUMENT: usize = 64 * 1024;
+const MAX_DOCUMENT: usize = 1024 * 1024;
 
 fn network_error(error: reqwest::Error, otherwise: PeerError) -> PeerError {
     if error.is_timeout() {
