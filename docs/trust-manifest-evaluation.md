@@ -110,6 +110,9 @@ Observations that came out of running the lab:
 8. **Cross-SDK card canonicalization.** The Python and JavaScript A2A signers
    drop empty values before JCS; the Rust SDK has no signer; a card signed
    as served may not verify in another SDK if it contains empty containers.
+   The Rust SDK 0.3.1 also rejects the wire form of an empty scope list
+   (`{"schemes":{"x":{}}}`, which the JSON mapping produces), so this
+   deployment names its scopes to keep every SDK on the same bytes.
 9. **Host manifest needs a subject.** A signed `host.trustManifest` must carry
    a `subject`, but the host has no artifact; binding its JWK Set is a
    workable convention the specification does not describe.
@@ -145,7 +148,8 @@ For **A2A**:
   client factory able to refuse unverified cards; `src/trust/card.rs` is a
   candidate contribution.
 - Specify the canonicalization of empty containers so signers in different
-  languages agree on the payload.
+  languages agree on the payload, and make the Rust SDK accept an omitted
+  `StringList.list` (the JSON mapping's form of an empty scope list).
 - Consider an optional **caller authentication** profile (a signed request
   header bound to `messageId`, as prototyped here) or a pointer to how
   `securitySchemes` should be used between agents.

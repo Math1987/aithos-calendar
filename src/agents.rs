@@ -70,6 +70,12 @@ impl Publisher {
     }
 }
 
+/// Version of the account-linked card template; a stored card with another
+/// version is re-issued at the next sign-in, with the agent's existing key.
+/// Scopes are named so no SDK meets an empty list: A2A's JSON mapping omits
+/// it, and the Rust SDK 0.3.1 cannot read the omitted form.
+pub const ACCOUNT_CARD_VERSION: &str = "0.6.1";
+
 impl Agent {
     pub fn availability(&self) -> Vec<crate::scheduling::Slot> {
         self.slots.clone()
@@ -79,12 +85,12 @@ impl Agent {
         if self.google_account {
             return serde_json::from_value(json!({
                 "name":self.name, "description":"Account-linked Google Calendar agent. Availability and booking require a short-lived operation capability issued by this service.",
-                "version":"0.6.0", "supportedInterfaces":[{"url":format!("{base_url}/a2a"),"protocolBinding":"JSONRPC","protocolVersion":"1.0","tenant":self.id}],
+                "version":ACCOUNT_CARD_VERSION, "supportedInterfaces":[{"url":format!("{base_url}/a2a"),"protocolBinding":"JSONRPC","protocolVersion":"1.0","tenant":self.id}],
                 "capabilities":{}, "defaultInputModes":["text/plain","application/json"], "defaultOutputModes":["text/plain","application/json"],
                 "securitySchemes":{"calendarOperation":{"httpAuthSecurityScheme":{"scheme":"Bearer","description":"Short-lived capability bound to the caller, recipient and exact operation; issued internally after browser authorization."}}},
                 "skills":[{"id":"greeting","name":"Greeting","description":"Returns a public greeting.","tags":["greeting"]},
-                {"id":"get_availability","name":"Calendar availability","description":"Reads free intervals on the connected primary calendar during weekdays 09:00–18:00, within a 30-day window.","tags":["calendar","availability"],"inputModes":["application/json"],"securityRequirements":[{"schemes":{"calendarOperation":{"list":[]}}}]},
-                {"id":"commit_booking","name":"Confirm a meeting","description":"Creates or reconciles a confirmed, server-stored booking using a deterministic event ID.","tags":["calendar","booking"],"inputModes":["application/json"],"securityRequirements":[{"schemes":{"calendarOperation":{"list":[]}}}]}]
+                {"id":"get_availability","name":"Calendar availability","description":"Reads free intervals on the connected primary calendar during weekdays 09:00–18:00, within a 30-day window.","tags":["calendar","availability"],"inputModes":["application/json"],"securityRequirements":[{"schemes":{"calendarOperation":{"list":["calendar:availability"]}}}]},
+                {"id":"commit_booking","name":"Confirm a meeting","description":"Creates or reconciles a confirmed, server-stored booking using a deterministic event ID.","tags":["calendar","booking"],"inputModes":["application/json"],"securityRequirements":[{"schemes":{"calendarOperation":{"list":["calendar:booking"]}}}]}]
             })).expect("account card matches SDK schema");
         }
         if self.live {

@@ -61,6 +61,7 @@ pub const EVENTS: &[&str] = &[
     "host_manifest_failed",
     "catalog_signature_failed",
     "card_signing_failed",
+    "card_reissued",
     "operator_key_loaded",
     "ephemeral_key",
     // catalog

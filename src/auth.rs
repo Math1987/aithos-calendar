@@ -439,6 +439,39 @@ async fn agent(State(s): State<Arc<Auth>>, headers: HeaderMap) -> Response {
     if !record.agent.google_account || record.booking_page_url.is_some() {
         return error(StatusCode::CONFLICT, "agent_identity_conflict");
     }
+    if record.card_version != crate::agents::ACCOUNT_CARD_VERSION {
+        // The card template changed since this card was signed: re-issue it
+        // with the agent's existing key, so the kid and JWK Set are unchanged.
+        let key = match s.agents.signing_key(&record.agent.id).await {
+            Ok(Some(encoded)) => crate::trust::AgentKey::decode(&encoded).ok(),
+            _ => None,
+        };
+        let Some(key) = key else {
+            return unavailable();
+        };
+        let (fresh, _) = match crate::identities::reissue(
+            s.trust.as_ref(),
+            record.agent.clone(),
+            None,
+            &s.base,
+            key,
+        )
+        .await
+        {
+            Ok(r) => r,
+            Err(error) => {
+                tracing::warn!(target: "calendar::trust", event = "card_signing_failed", tenant = %account.id, code = %error);
+                return unavailable();
+            }
+        };
+        let mut fresh = fresh;
+        fresh.published = record.published;
+        if s.agents.update(&fresh).await.is_err() {
+            return unavailable();
+        }
+        tracing::info!(target: "calendar::trust", event = "card_reissued", tenant = %account.id, card_digest = %fresh.card_digest);
+        record = fresh;
+    }
     if !record.published {
         // Records created before publication became immediate.
         if s.agents.publish(&record.agent.id).await.is_err() {

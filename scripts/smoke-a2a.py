@@ -72,7 +72,7 @@ def main(catalog_url):
         assert entry["trustManifest"]["subject"]["url"] == entry["url"]
         response = send(interface, tenant)
         assert response["result"]["message"]["parts"][0]["text"] == f"Hello from {card['name']}", response
-        if card["version"] in ("0.5.0", "0.6.0"):
+        if card["version"] in ("0.5.0", "0.6.0", "0.6.1"):
             response = send(interface, tenant, {"operation":"get_availability"})
             # Account-linked agents refuse anonymous callers before the capability check.
             refused = ("error" in response and "result" not in response) or data(response)["code"] in (
