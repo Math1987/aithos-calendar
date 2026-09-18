@@ -14,6 +14,7 @@ use std::time::Duration;
 /// Immediate messages only: no task store or work left running after a response.
 pub struct CalendarHandler {
     pub publisher: crate::agents::Publisher,
+    pub policies: crate::trust::Policies,
     pub directory: PeerDirectory,
     pub connected: Option<std::sync::Arc<crate::connected::Connected>>,
     pub reader: Option<std::sync::Arc<dyn crate::availability::AvailabilityReader>>,
@@ -127,8 +128,13 @@ impl CalendarHandler {
                 let outcome = tokio::time::timeout(Duration::from_secs(15), async {
                     let (host, peer_result) = tokio::join!(
                         self.read_live(agent, &window),
-                        self.directory
-                            .availability(&peer, trace_id, &agent.id, Some(&window))
+                        self.directory.availability(
+                            &peer,
+                            trace_id,
+                            &agent.id,
+                            Some(&window),
+                            self.policies.live
+                        )
                     );
                     Ok::<_, &'static str>((host?, peer_result.map_err(|e| e.code())?))
                 })
@@ -293,8 +299,13 @@ impl CalendarHandler {
                 }
                 let outcome = tokio::time::timeout(
                     Duration::from_secs(10),
-                    self.directory
-                        .availability(&peer, trace_id, &agent.id, None),
+                    self.directory.availability(
+                        &peer,
+                        trace_id,
+                        &agent.id,
+                        None,
+                        self.policies.mock,
+                    ),
                 )
                 .await
                 .unwrap_or(Err(PeerError::Timeout));

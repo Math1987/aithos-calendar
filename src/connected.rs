@@ -25,6 +25,7 @@ pub struct Connected {
     pub bookings: Arc<dyn BookingStore>,
     pub agents: Arc<dyn AgentStore>,
     pub directory: Arc<crate::discovery::PeerDirectory>,
+    pub policies: crate::trust::Policies,
     pub website: String,
 }
 #[derive(Clone, Serialize, Deserialize)]
@@ -46,7 +47,13 @@ fn view(r: &BookingOperation) -> Value {
     },"reserved":r.stage==Stage::Booked,"retry_after_ms":3000})
 }
 impl Connected {
-    async fn call(&self, host: &str, caller: &str, data: Value) -> Result<Value, &'static str> {
+    async fn call(
+        &self,
+        host: &str,
+        caller: &str,
+        data: Value,
+        policy: crate::trust::Policy,
+    ) -> Result<Value, &'static str> {
         let token = random();
         let trace_id = a2a::new_message_id();
         let key = format!("a2a-grant:{}", digest(&token));
@@ -66,6 +73,7 @@ impl Connected {
                 &token,
                 data,
                 &trace_id,
+                policy,
             )
             .await
             .map_err(|e| e.code());
@@ -183,7 +191,8 @@ impl Connected {
             self.call(
                 host,
                 peer,
-                json!({"operation":"get_availability","window":window})
+                json!({"operation":"get_availability","window":window}),
+                self.policies.live,
             )
         );
         let own = own?;
@@ -393,6 +402,7 @@ impl Connected {
                 &r.host,
                 &r.peer,
                 json!({"operation":"commit_booking","booking_id":r.id,"submit":fresh}),
+                self.policies.booking,
             )
             .await?;
         if response["status"] != "event_created" {

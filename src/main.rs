@@ -46,6 +46,7 @@ async fn main() -> Result<(), Error> {
         let kms = aws_sdk_kms::Client::new(&config);
         let trust = calendar::trust::from_env(&base_url, Some(&kms)).await?;
         let operator = calendar::trust::operator_from_env(&base_url, Some(&kms)).await?;
+        let policies = calendar::trust::Policies::from_env()?;
         let trusted_guarantors: Vec<String> = std::env::var("TRUSTED_GUARANTORS")
             .ok()
             .map(|v| {
@@ -95,6 +96,7 @@ async fn main() -> Result<(), Error> {
                 &catalog_url,
                 trusted_guarantors.clone(),
             )?),
+            policies,
             website: website.clone(),
         });
         if std::env::var("CALENDAR_WORKER").as_deref() == Ok("true") {
@@ -147,6 +149,7 @@ async fn main() -> Result<(), Error> {
                 .with_catalog(&catalog_url)
                 .with_website(&website)
                 .with_trusted_guarantors(trusted_guarantors)
+                .with_policies(policies)
                 .with_reader(Some(std::sync::Arc::new(
                     calendar::availability::GoogleHttpReader::new()?,
                 )))

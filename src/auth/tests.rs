@@ -447,6 +447,7 @@ async fn autonomous_task_is_idempotent_and_private_to_the_requester() {
         bookings: service.bookings.clone(),
         agents: service.agents.clone(),
         directory: service.directory.clone(),
+        policies: service.policies,
         website: auth.website.clone(),
         jobs: Some(Arc::new(Jobs {
             store: Arc::new(MemoryState::default()),

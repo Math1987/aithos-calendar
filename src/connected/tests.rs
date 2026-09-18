@@ -110,6 +110,7 @@ async fn fixture() -> (
         bookings: Arc::new(MemoryBookingStore::default()),
         agents: agents.clone(),
         directory: Arc::new(config.directory().unwrap()),
+        policies: crate::trust::Policies::default(),
         website: base.clone(),
     });
     let app = crate::build(config.with_connected(Some(service.clone()))).unwrap();

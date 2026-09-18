@@ -168,11 +168,13 @@ async fn json_logs_distinguish_sdk_and_app_without_mixing_concurrent_traces() {
         let peer_call = events.iter().find(|e| e["event"] == "peer_call").unwrap();
         assert_eq!(peer_call["target"], "calendar::discovery");
         assert_eq!(peer_call["recipient_tenant"], peer);
-        // The trust chain is visible step by step, under its own target.
+        // The trust chain is visible step by step, under its own target. Mock
+        // exchanges run under the `integrity` policy: the manifest binding is
+        // used without verifying the guarantor signature.
         for step in [
             "catalog_fetched",
             "catalog_signature_verified",
-            "manifest_verified",
+            "manifest_unverified",
             "card_digest_verified",
             "card_signature_verified",
             "peer_verified",
@@ -183,6 +185,9 @@ async fn json_logs_distinguish_sdk_and_app_without_mixing_concurrent_traces() {
                 .unwrap_or_else(|| panic!("{step} for {trace}"));
             assert_eq!(event["target"], "calendar::trust");
             assert_eq!(event["span"]["tenant"], caller);
+            if step == "peer_verified" {
+                assert_eq!(event["policy"], "integrity");
+            }
         }
     }
     assert!(logs.iter().any(|e| e["span"]["trace_id"] == unknown_trace

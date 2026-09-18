@@ -34,6 +34,10 @@ pub enum VerifyError {
     CardDigestMismatch,
     CardKeyLocationInvalid,
     CardSignatureInvalid,
+    /// The policy requires a signed manifest and the entry carries none.
+    TrustDowngrade,
+    /// The policy requires an attestation the manifest does not carry.
+    AttestationMissing,
 }
 
 impl VerifyError {
@@ -52,6 +56,8 @@ impl VerifyError {
             Self::CardDigestMismatch => "card_digest_mismatch",
             Self::CardKeyLocationInvalid => "card_key_location_invalid",
             Self::CardSignatureInvalid => "card_signature_invalid",
+            Self::TrustDowngrade => "trust_downgrade",
+            Self::AttestationMissing => "attestation_missing",
         }
     }
 }
@@ -99,6 +105,50 @@ fn timestamp(value: &Value) -> Result<DateTime<Utc>, VerifyError> {
         .and_then(|t| DateTime::parse_from_rfc3339(t).ok())
         .map(|t| t.with_timezone(&Utc))
         .ok_or(VerifyError::ManifestMalformed)
+}
+
+/// The `subject` binding of a manifest, checked for shape and consistency
+/// with the entry but **not** for its signature: the `Integrity` policy
+/// level, where the digest is all a consumer relies on.
+pub fn manifest_binding(
+    manifest: &Value,
+    entry_type: &str,
+    entry_url: &str,
+) -> Result<Binding, VerifyError> {
+    if manifest.is_null() {
+        return Err(VerifyError::ManifestMissing);
+    }
+    if !manifest.is_object() {
+        return Err(VerifyError::ManifestMalformed);
+    }
+    let subject = &manifest["subject"];
+    let digest = subject["digest"]
+        .as_str()
+        .ok_or(VerifyError::ManifestMalformed)?;
+    let hex = digest
+        .strip_prefix("sha256:")
+        .ok_or(VerifyError::ManifestMalformed)?;
+    if hex.len() != 64
+        || !hex
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+    {
+        return Err(VerifyError::ManifestMalformed);
+    }
+    if subject["type"] != entry_type || subject["url"] != entry_url {
+        return Err(VerifyError::ManifestSubjectMismatch);
+    }
+    Ok(Binding {
+        digest: digest.to_owned(),
+        expires_at: None,
+    })
+}
+
+/// Whether a (verified) manifest carries an attestation of `kind`.
+pub fn has_attestation(manifest: &Value, kind: &str) -> bool {
+    manifest["attestations"]
+        .as_array()
+        .is_some_and(|list| list.iter().any(|a| a["type"] == kind))
 }
 
 /// Step 2.

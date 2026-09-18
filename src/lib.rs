@@ -49,6 +49,8 @@ pub struct Config {
     /// Guarantor identities whose manifests the discovery client accepts.
     /// Defaults to this deployment's own guarantor.
     pub trusted_guarantors: Vec<String>,
+    /// Trust level required per outgoing operation.
+    pub policies: trust::Policies,
 }
 
 impl Config {
@@ -68,6 +70,7 @@ impl Config {
             catalog_url: format!("{base_url}/.well-known/ai-catalog.json"),
             website: base_url.clone(),
             trusted_guarantors: vec![trust.identity().to_owned()],
+            policies: trust::Policies::default(),
             operator: Arc::new(trust::Operator::ephemeral(&base_url)),
             trust,
             store,
@@ -106,6 +109,10 @@ impl Config {
     }
     pub fn with_operator(mut self, operator: Arc<trust::Operator>) -> Self {
         self.operator = operator;
+        self
+    }
+    pub fn with_policies(mut self, policies: trust::Policies) -> Self {
+        self.policies = policies;
         self
     }
     /// The discovery client this configuration implies.
@@ -154,6 +161,7 @@ pub fn build(config: Config) -> Result<Router, lambda_http::Error> {
         .with_state(state);
     let protocol = a2a_server::jsonrpc::jsonrpc_router(Arc::new(a2a::CalendarHandler {
         publisher: agents::Publisher::from_base(&config.base_url),
+        policies: config.policies,
         directory,
         connected: config.connected,
         store: config.store,

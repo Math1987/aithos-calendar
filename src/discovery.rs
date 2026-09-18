@@ -17,7 +17,7 @@
 use crate::{
     agents::Publisher,
     scheduling::Availability,
-    trust::{card, jose, verify},
+    trust::{Policy, card, jose, verify},
 };
 use a2a::{AgentCard, Message, Part, PartContent, Role, SendMessageRequest, SendMessageResponse};
 use a2a_client::{A2AClientFactory, jsonrpc::JsonRpcTransportFactory};
@@ -291,28 +291,40 @@ impl PeerDirectory {
         Ok(entry)
     }
 
-    /// Steps 1 to 4. Every outcome is logged with the peer and trace so the
-    /// public log shows which link of the chain held or broke.
-    pub async fn resolve(&self, peer: &str, trace_id: &str) -> Result<VerifiedPeer, PeerError> {
-        let outcome = self.resolve_inner(peer, trace_id).await;
+    /// Steps 1 to 4 under `policy`. Every outcome is logged with the peer,
+    /// the trace and the policy so the public log shows which link of the
+    /// chain held or broke.
+    pub async fn resolve(
+        &self,
+        peer: &str,
+        trace_id: &str,
+        policy: Policy,
+    ) -> Result<VerifiedPeer, PeerError> {
+        let outcome = self.resolve_inner(peer, trace_id, policy).await;
         match &outcome {
             Ok(verified) => {
-                tracing::info!(target: "calendar::trust", event = "peer_verified", peer, trace_id, card_digest = %verified.card_digest)
+                tracing::info!(target: "calendar::trust", event = "peer_verified", peer, trace_id, policy = %policy, card_digest = %verified.card_digest)
             }
             Err(error) => {
-                tracing::warn!(target: "calendar::trust", event = "peer_rejected", peer, trace_id, code = error.code())
+                tracing::warn!(target: "calendar::trust", event = "peer_rejected", peer, trace_id, policy = %policy, code = error.code())
             }
         }
         outcome
     }
 
-    async fn resolve_inner(&self, peer: &str, trace_id: &str) -> Result<VerifiedPeer, PeerError> {
+    async fn resolve_inner(
+        &self,
+        peer: &str,
+        trace_id: &str,
+        policy: Policy,
+    ) -> Result<VerifiedPeer, PeerError> {
         let tenant = self
             .publisher
             .tenant(peer)
             .ok_or(PeerError::NotFound)?
             .to_owned();
-        // 1. Catalog.
+        // 1. Catalog. A present signature must always verify; whether one is
+        // required at all depends on the policy.
         let bytes = self
             .fetch_bytes(self.catalog_url.clone(), PeerError::DiscoveryUnavailable)
             .await?;
@@ -320,40 +332,70 @@ impl PeerDirectory {
             serde_json::from_slice(&bytes).map_err(|_| PeerError::DiscoveryUnavailable)?;
         tracing::info!(target: "calendar::trust", event = "catalog_fetched", trace_id, bytes = bytes.len(),
             entries = catalog["entries"].as_array().map_or(0, Vec::len));
-        let operator = catalog["host"]["identifier"]
+        if !catalog["specVersion"]
             .as_str()
-            .ok_or(PeerError::UntrustedOperator)?;
-        let operator_keys = self.operator_keys(operator).await.inspect_err(
-            |error| tracing::warn!(target: "calendar::trust", event = "catalog_signature_rejected", trace_id, code = error.code()),
-        )?;
-        verify::verify_catalog(&catalog, &operator_keys).inspect_err(
-            |error| tracing::warn!(target: "calendar::trust", event = "catalog_signature_rejected", trace_id, code = error.code()),
-        )?;
-        tracing::info!(target: "calendar::trust", event = "catalog_signature_verified", trace_id, kid = operator_keys.kids().next());
+            .is_some_and(verify::version_supported)
+        {
+            return Err(verify::VerifyError::CatalogUnsupportedVersion.into());
+        }
+        if catalog["signature"].is_null() && policy < Policy::Guaranteed {
+            tracing::info!(target: "calendar::trust", event = "catalog_unsigned", trace_id, policy = %policy);
+        } else {
+            let operator = catalog["host"]["identifier"]
+                .as_str()
+                .ok_or(PeerError::UntrustedOperator)?;
+            let operator_keys = self.operator_keys(operator).await.inspect_err(
+                |error| tracing::warn!(target: "calendar::trust", event = "catalog_signature_rejected", trace_id, code = error.code()),
+            )?;
+            verify::verify_catalog(&catalog, &operator_keys).inspect_err(
+                |error| tracing::warn!(target: "calendar::trust", event = "catalog_signature_rejected", trace_id, code = error.code()),
+            )?;
+            tracing::info!(target: "calendar::trust", event = "catalog_signature_verified", trace_id, kid = operator_keys.kids().next());
+        }
         // 2. Entry and manifest.
         let entry = self.select_entry(&catalog, peer)?;
         let entry_url = entry["url"].as_str().ok_or(PeerError::InvalidCard)?;
         let manifest = &entry["trustManifest"];
+        let rejected = |error: &PeerError| tracing::warn!(target: "calendar::trust", event = "manifest_rejected", peer, trace_id, policy = %policy, code = error.code());
         if manifest.is_null() {
-            tracing::warn!(target: "calendar::trust", event = "manifest_rejected", peer, trace_id, code = verify::VerifyError::ManifestMissing.code());
-            return Err(verify::VerifyError::ManifestMissing.into());
+            let error: PeerError = if policy >= Policy::Guaranteed {
+                verify::VerifyError::TrustDowngrade.into()
+            } else {
+                verify::VerifyError::ManifestMissing.into()
+            };
+            rejected(&error);
+            return Err(error);
         }
-        let identity = manifest["identity"].as_str().unwrap_or_default();
-        let guarantor_keys = self.guarantor_keys(identity).await.inspect_err(
-            |error| tracing::warn!(target: "calendar::trust", event = "manifest_rejected", peer, trace_id, code = error.code()),
-        )?;
-        let binding = verify::verify_manifest(
-            manifest,
-            &guarantor_keys,
-            identity,
-            crate::trust::manifest::CARD_TYPE,
-            entry_url,
-            chrono::Utc::now(),
-        )
-        .inspect_err(
-            |error| tracing::warn!(target: "calendar::trust", event = "manifest_rejected", peer, trace_id, code = error.code()),
-        )?;
-        tracing::info!(target: "calendar::trust", event = "manifest_verified", peer, trace_id, card_digest = %binding.digest);
+        let binding = if policy >= Policy::Guaranteed {
+            let identity = manifest["identity"].as_str().unwrap_or_default();
+            let guarantor_keys = self.guarantor_keys(identity).await.inspect_err(rejected)?;
+            let binding = verify::verify_manifest(
+                manifest,
+                &guarantor_keys,
+                identity,
+                crate::trust::manifest::CARD_TYPE,
+                entry_url,
+                chrono::Utc::now(),
+            )
+            .map_err(PeerError::from)
+            .inspect_err(rejected)?;
+            tracing::info!(target: "calendar::trust", event = "manifest_verified", peer, trace_id, guarantor = identity, card_digest = %binding.digest);
+            if policy >= Policy::VerifiedAccount
+                && !verify::has_attestation(manifest, crate::trust::ACCOUNT_VERIFIED)
+            {
+                let error: PeerError = verify::VerifyError::AttestationMissing.into();
+                rejected(&error);
+                return Err(error);
+            }
+            binding
+        } else {
+            let binding =
+                verify::manifest_binding(manifest, crate::trust::manifest::CARD_TYPE, entry_url)
+                    .map_err(PeerError::from)
+                    .inspect_err(rejected)?;
+            tracing::info!(target: "calendar::trust", event = "manifest_unverified", peer, trace_id, policy = %policy, card_digest = %binding.digest);
+            binding
+        };
         // 3. Card bytes.
         let card_url = self.trusted_url(entry_url)?;
         let card_bytes = self.fetch_bytes(card_url, PeerError::InvalidCard).await?;
@@ -408,8 +450,9 @@ impl PeerDirectory {
         token: &str,
         operation: Value,
         trace_id: &str,
+        policy: Policy,
     ) -> Result<Value, PeerError> {
-        let verified = self.resolve(peer, trace_id).await?;
+        let verified = self.resolve(peer, trace_id, policy).await?;
         tracing::info!(
             event = "connected_peer_call",
             peer,
@@ -468,8 +511,9 @@ impl PeerDirectory {
         trace_id: &str,
         caller: &str,
         window: Option<&crate::scheduling::Window>,
+        policy: Policy,
     ) -> Result<Availability, PeerError> {
-        let verified = self.resolve(peer, trace_id).await?;
+        let verified = self.resolve(peer, trace_id, policy).await?;
         let factory = self.client(if window.is_some() {
             self.live_http.clone()
         } else {

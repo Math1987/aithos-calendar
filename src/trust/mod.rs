@@ -27,7 +27,10 @@ pub mod card;
 pub mod jose;
 pub mod kms;
 pub mod manifest;
+pub mod policy;
 pub mod verify;
+
+pub use policy::{Policies, Policy};
 
 pub use jose::{JoseError, Jwks};
 
