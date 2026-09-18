@@ -2,9 +2,9 @@
 //! verified before any A2A call:
 //!
 //! 1. fetch the catalog and verify its signature under the operator key set
-//!    named by `host.identifier`, which must be a pinned trusted identity;
+//!    named by `host.identifier`, which must live on the catalog's origin;
 //! 2. select the entry, verify its `trustManifest` (signature by a pinned
-//!    identity, `subject` restating the entry, validity window);
+//!    guarantor, `subject` restating the entry, validity window);
 //! 3. fetch the card and check `sha256(bytes) == subject.digest`;
 //! 4. verify the card's own JWS with the key set at its `jku`, which must be
 //!    the agent's key location on the agent origin;
@@ -39,8 +39,10 @@ pub enum PeerError {
     Timeout,
     /// The catalog lists the same identifier and version twice.
     DuplicateEntry,
-    /// The catalog names an operator this client does not trust.
+    /// The catalog names an operator key set outside the catalog's origin.
     UntrustedOperator,
+    /// The manifest was signed by a guarantor this client does not pin.
+    UntrustedGuarantor,
     /// A verification step of the trust chain failed.
     Trust(verify::VerifyError),
     /// A key set could not be fetched or parsed.
@@ -58,6 +60,7 @@ impl PeerError {
             Self::Timeout => "timeout",
             Self::DuplicateEntry => "catalog_duplicate_entry",
             Self::UntrustedOperator => "untrusted_operator",
+            Self::UntrustedGuarantor => "untrusted_guarantor",
             Self::Trust(error) => error.code(),
             Self::KeysUnavailable => "keys_unavailable",
         }
@@ -73,7 +76,8 @@ impl PeerError {
             Self::DuplicateEntry => {
                 "The catalog lists the peer more than once for the same version"
             }
-            Self::UntrustedOperator => "The catalog operator is not a trusted identity",
+            Self::UntrustedOperator => "The catalog operator key set is not on the catalog origin",
+            Self::UntrustedGuarantor => "The manifest guarantor is not a trusted identity",
             Self::Trust(_) => "The peer failed trust verification; no call was made",
             Self::KeysUnavailable => "A verification key set could not be loaded",
         }
@@ -99,7 +103,7 @@ pub struct PeerDirectory {
     catalog_url: Url,
     agent_origin: Url,
     publisher: Publisher,
-    trusted_identities: Vec<String>,
+    trusted_guarantors: Vec<String>,
     keys: Mutex<HashMap<String, (Instant, Arc<jose::Jwks>)>>,
 }
 
@@ -129,7 +133,7 @@ impl PeerDirectory {
     pub fn new(
         public_url: &str,
         catalog_url: &str,
-        trusted_identities: Vec<String>,
+        trusted_guarantors: Vec<String>,
     ) -> Result<Self, lambda_http::Error> {
         // Explicit provider avoids a platform-dependent TLS default in the SDK.
         let _ = a2a_client::rustls::crypto::aws_lc_rs::default_provider().install_default();
@@ -140,13 +144,13 @@ impl PeerDirectory {
                 return Err("Discovery configuration requires HTTPS (or loopback HTTP), without credentials or fragments".into());
             }
         }
-        for identity in &trusted_identities {
+        for identity in &trusted_guarantors {
             if !Url::parse(identity).is_ok_and(|url| safe_url(&url)) {
-                return Err("Trusted identities must be HTTPS JWK Set URLs".into());
+                return Err("Trusted guarantors must be HTTPS JWK Set URLs".into());
             }
         }
-        if trusted_identities.is_empty() {
-            return Err("At least one trusted identity is required".into());
+        if trusted_guarantors.is_empty() {
+            return Err("At least one trusted guarantor is required".into());
         }
         let http = Client::builder()
             .connect_timeout(Duration::from_secs(2))
@@ -163,7 +167,7 @@ impl PeerDirectory {
             catalog_url,
             publisher: Publisher::from_base(public_url),
             agent_origin,
-            trusted_identities,
+            trusted_guarantors,
             keys: Mutex::new(HashMap::new()),
         })
     }
@@ -205,17 +209,36 @@ impl PeerDirectory {
         Ok(bytes)
     }
 
-    /// The key set published at a pinned identity URL, cached briefly.
-    async fn keys_for(&self, identity: &str) -> Result<Arc<jose::Jwks>, PeerError> {
-        if !self.trusted_identities.iter().any(|t| t == identity) {
+    /// The operator key set named by `host.identifier`: an HTTPS JWK Set on
+    /// the catalog's own origin, so the catalog signature proves control of
+    /// the origin it was fetched from.
+    async fn operator_keys(&self, identity: &str) -> Result<Arc<jose::Jwks>, PeerError> {
+        let url = Url::parse(identity).map_err(|_| PeerError::UntrustedOperator)?;
+        if url.origin() != self.catalog_url.origin() || !safe_url(&url) {
             return Err(PeerError::UntrustedOperator);
         }
+        self.keys_at(identity).await
+    }
+
+    /// The key set of a guarantor this client pins by configuration.
+    async fn guarantor_keys(&self, identity: &str) -> Result<Arc<jose::Jwks>, PeerError> {
+        if !self.trusted_guarantors.iter().any(|t| t == identity) {
+            return Err(PeerError::UntrustedGuarantor);
+        }
+        self.keys_at(identity).await
+    }
+
+    /// The key set published at an identity URL, cached briefly.
+    async fn keys_at(&self, identity: &str) -> Result<Arc<jose::Jwks>, PeerError> {
         if let Some((fetched, keys)) = self.keys.lock().ok().and_then(|c| c.get(identity).cloned())
             && fetched.elapsed() < KEYS_TTL
         {
             return Ok(keys);
         }
         let url = Url::parse(identity).map_err(|_| PeerError::KeysUnavailable)?;
+        if !safe_url(&url) {
+            return Err(PeerError::KeysUnavailable);
+        }
         let bytes = self.fetch_bytes(url, PeerError::KeysUnavailable).await?;
         let document: Value =
             serde_json::from_slice(&bytes).map_err(|_| PeerError::KeysUnavailable)?;
@@ -300,7 +323,9 @@ impl PeerDirectory {
         let operator = catalog["host"]["identifier"]
             .as_str()
             .ok_or(PeerError::UntrustedOperator)?;
-        let operator_keys = self.keys_for(operator).await?;
+        let operator_keys = self.operator_keys(operator).await.inspect_err(
+            |error| tracing::warn!(target: "calendar::trust", event = "catalog_signature_rejected", trace_id, code = error.code()),
+        )?;
         verify::verify_catalog(&catalog, &operator_keys).inspect_err(
             |error| tracing::warn!(target: "calendar::trust", event = "catalog_signature_rejected", trace_id, code = error.code()),
         )?;
@@ -309,12 +334,14 @@ impl PeerDirectory {
         let entry = self.select_entry(&catalog, peer)?;
         let entry_url = entry["url"].as_str().ok_or(PeerError::InvalidCard)?;
         let manifest = &entry["trustManifest"];
+        if manifest.is_null() {
+            tracing::warn!(target: "calendar::trust", event = "manifest_rejected", peer, trace_id, code = verify::VerifyError::ManifestMissing.code());
+            return Err(verify::VerifyError::ManifestMissing.into());
+        }
         let identity = manifest["identity"].as_str().unwrap_or_default();
-        let guarantor_keys = if manifest.is_null() {
-            operator_keys.clone()
-        } else {
-            self.keys_for(identity).await?
-        };
+        let guarantor_keys = self.guarantor_keys(identity).await.inspect_err(
+            |error| tracing::warn!(target: "calendar::trust", event = "manifest_rejected", peer, trace_id, code = error.code()),
+        )?;
         let binding = verify::verify_manifest(
             manifest,
             &guarantor_keys,

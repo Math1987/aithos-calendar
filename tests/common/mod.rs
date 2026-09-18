@@ -6,7 +6,9 @@ use calendar::{
     agents::{Agent, Publisher},
     identities,
     storage::{AgentStore, MemoryStore},
-    trust::{AgentKey, EntryDraft, LocalTrust, TrustProvider, jose, manifest},
+    trust::{
+        AgentKey, Claims, EntryDraft, LocalTrust, Operator, TrustProvider, card, jose, manifest,
+    },
 };
 use serde_json::{Value, json};
 use std::{collections::HashMap, sync::Arc};
@@ -14,6 +16,7 @@ use std::{collections::HashMap, sync::Arc};
 pub struct Fixture {
     pub base: String,
     pub trust: Arc<dyn TrustProvider>,
+    pub operator: Arc<Operator>,
     pub store: Arc<MemoryStore>,
     pub keys: HashMap<String, AgentKey>,
 }
@@ -48,9 +51,15 @@ impl Fixture {
         Self {
             base: base.trim_end_matches('/').into(),
             trust,
+            operator: Arc::new(Operator::ephemeral(base)),
             store,
             keys,
         }
+    }
+    /// The application configuration for this fixture.
+    pub fn config(&self) -> calendar::Config {
+        calendar::Config::new(&self.base, self.trust.clone(), self.store.clone())
+            .with_operator(self.operator.clone())
     }
     pub fn publisher(&self) -> Publisher {
         Publisher::from_base(&self.base)
@@ -60,9 +69,7 @@ impl Fixture {
     }
     /// Sign an arbitrary card with `id`'s key, as served bytes.
     pub async fn sign_card(&self, id: &str, card: Value) -> Vec<u8> {
-        self.trust
-            .sign_card(card, &self.keys[id], &identities::jwks_url(&self.base, id))
-            .await
+        card::sign(card, &self.keys[id], &identities::jwks_url(&self.base, id))
             .unwrap()
             .bytes
     }
@@ -76,6 +83,7 @@ impl Fixture {
                     url: url.into(),
                 },
                 card_bytes,
+                &Claims::default(),
             )
             .await
             .unwrap()
@@ -87,17 +95,17 @@ impl Fixture {
             list.push(json!({
                 "identifier": identifier, "type": manifest::CARD_TYPE, "url": url,
                 "displayName": identifier, "version": "1.0", "updatedAt": "2030-01-01T00:00:00Z",
-                "publisher": {"identifier": self.trust.identity(), "displayName": "Test"},
+                "publisher": {"identifier": self.operator.identity(), "displayName": "Test"},
                 "trustManifest": self.manifest(identifier, url, bytes).await,
             }));
         }
         let mut catalog = json!({
             "specVersion": "1.0",
-            "host": {"displayName": "Test", "identifier": self.trust.identity(),
-                     "trustManifest": self.trust.host_manifest().await.unwrap()},
+            "host": {"displayName": "Test", "identifier": self.operator.identity(),
+                     "trustManifest": self.operator.host_manifest().await.unwrap()},
             "entries": list,
         });
-        self.trust.sign_catalog(&mut catalog).await.unwrap();
+        self.operator.sign_catalog(&mut catalog).await.unwrap();
         catalog
     }
     pub fn digest(bytes: &[u8]) -> String {

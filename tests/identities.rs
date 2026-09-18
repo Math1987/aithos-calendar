@@ -185,7 +185,18 @@ async fn public_creation_publishes_a_signed_card_and_a_trusted_catalog_entry() {
         report.findings
     );
     assert!(ai_catalog_trust::verify_digest(&record.card_digest, &bytes).unwrap());
-    let operator: Value = reqwest::get(s.trust.identity())
+    // Operator key set (catalog signature) and guarantor key set (manifests)
+    // are two different documents on two different paths.
+    let operator_identity = catalog_value["host"]["identifier"].as_str().unwrap();
+    assert_eq!(
+        operator_identity,
+        format!("{}/.well-known/jwks.json", s.base)
+    );
+    assert_eq!(
+        s.trust.identity(),
+        format!("{}/trust-provider/.well-known/jwks.json", s.base)
+    );
+    let operator: Value = reqwest::get(operator_identity)
         .await
         .unwrap()
         .json()
@@ -193,6 +204,35 @@ async fn public_creation_publishes_a_signed_card_and_a_trusted_catalog_entry() {
         .unwrap();
     let operator_keys = calendar::trust::jose::Jwks::parse(&operator).unwrap();
     calendar::trust::verify::verify_catalog(&catalog_value, &operator_keys).unwrap();
+    let guarantor: Value = reqwest::get(s.trust.identity())
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let guarantor_keys = calendar::trust::jose::Jwks::parse(&guarantor).unwrap();
+    assert_ne!(operator, guarantor);
+    calendar::trust::verify::verify_manifest(
+        &entry["trustManifest"],
+        &guarantor_keys,
+        s.trust.identity(),
+        "application/a2a-agent-card+json",
+        entry["url"].as_str().unwrap(),
+        chrono::Utc::now(),
+    )
+    .unwrap();
+    assert!(
+        calendar::trust::verify::verify_manifest(
+            &entry["trustManifest"],
+            &operator_keys,
+            s.trust.identity(),
+            "application/a2a-agent-card+json",
+            entry["url"].as_str().unwrap(),
+            chrono::Utc::now(),
+        )
+        .is_err(),
+        "the operator key must not verify a guarantor manifest"
+    );
     // Existing records must not be revalidated or regenerated during a Google outage.
     s.pages.reject.store(true, Ordering::SeqCst);
     let (status, again) = create(&s, &format!("{HOST}?gv=true#fragment")).await;

@@ -47,6 +47,22 @@ pub fn draft(
     })
 }
 
+/// The "account-verified" attestation: a self-contained `data:` URI (the
+/// spec recommends inline attestations) stating that the agent's account
+/// identity was verified by OpenID Connect sign-in. It names no person.
+pub fn account_attestation(issued_at: DateTime<Utc>) -> Value {
+    let statement = json!({"claim": "account-verified", "method": "google-oidc",
+        "issuedAt": rfc3339(issued_at)});
+    let bytes = jose::canonicalize(&statement).expect("statement canonicalizes");
+    json!({
+        "type": super::ACCOUNT_VERIFIED,
+        "uri": format!("data:application/json;base64,{}", jose::b64url(&bytes)),
+        "digest": jose::digest(&bytes),
+        "size": bytes.len(),
+        "description": "The agent's account identity was verified by OpenID Connect sign-in.",
+    })
+}
+
 /// An unsigned host manifest binding the operator JWK Set itself.
 pub fn host_draft(
     identity: &str,
@@ -142,5 +158,58 @@ mod tests {
         let mut unsigned = manifest.clone();
         unsigned.as_object_mut().unwrap().remove("signature");
         assert!(!ok(&unsigned));
+    }
+}
+
+#[cfg(test)]
+mod sdk_equivalence {
+    //! The signed payloads equal what the AI Catalog SDK canonicalizes, so
+    //! a consumer built on `ai-catalog-trust` reproduces our bytes.
+    use super::*;
+    use crate::trust::{Claims, EntryDraft, LocalTrust, Operator, TrustProvider};
+
+    #[tokio::test]
+    async fn sdk_canonicalization_reproduces_our_signing_payloads() {
+        let trust = LocalTrust::ephemeral("https://api.test");
+        let operator = Operator::ephemeral("https://api.test");
+        let entry = EntryDraft {
+            identifier: "urn:air:api.test:agent:a".into(),
+            entry_type: CARD_TYPE.into(),
+            url: "https://api.test/agents/a/agent-card.json".into(),
+        };
+        let manifest = trust
+            .manifest_for(
+                &entry,
+                b"card",
+                &Claims {
+                    account_verified: true,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(manifest["attestations"][0]["type"], "account-verified");
+        let typed: ai_catalog::TrustManifest = serde_json::from_value(manifest.clone()).unwrap();
+        assert_eq!(
+            ai_catalog_trust::canonicalize_trust_manifest(&typed)
+                .unwrap()
+                .into_bytes(),
+            signing_payload(&manifest).unwrap()
+        );
+        let mut catalog = json!({
+            "specVersion": "1.0",
+            "host": {"displayName": "h", "identifier": operator.identity(),
+                     "trustManifest": operator.host_manifest().await.unwrap()},
+            "entries": [{"identifier": entry.identifier, "type": CARD_TYPE, "url": entry.url,
+                         "tags": ["calendar"], "trustManifest": manifest}],
+        });
+        operator.sign_catalog(&mut catalog).await.unwrap();
+        let typed: ai_catalog::AiCatalog = serde_json::from_value(catalog.clone()).unwrap();
+        assert_eq!(
+            ai_catalog_trust::canonicalize_catalog(&typed)
+                .unwrap()
+                .into_bytes(),
+            signing_payload(&catalog).unwrap()
+        );
+        assert!(ai_catalog_trust::verify_digest(&jose::digest(b"card"), b"card").unwrap());
     }
 }

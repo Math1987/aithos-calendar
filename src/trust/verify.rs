@@ -163,12 +163,12 @@ pub fn verify_manifest(
     })
 }
 
-/// Step 3.
+/// Step 3, through the AI Catalog SDK's own digest check (it also rejects
+/// digest algorithms weaker than SHA-256).
 pub fn verify_card_digest(bytes: &[u8], expected: &str) -> Result<(), VerifyError> {
-    if jose::digest(bytes) == expected {
-        Ok(())
-    } else {
-        Err(VerifyError::CardDigestMismatch)
+    match ai_catalog_trust::verify_digest(expected, bytes) {
+        Ok(true) => Ok(()),
+        _ => Err(VerifyError::CardDigestMismatch),
     }
 }
 
@@ -194,7 +194,7 @@ pub fn verify_card(card: &Value, keys: &jose::Jwks) -> Result<(), VerifyError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::trust::{EntryDraft, LocalTrust, TrustProvider};
+    use crate::trust::{Claims, EntryDraft, LocalTrust, Operator, TrustProvider};
     use serde_json::json;
 
     #[test]
@@ -217,7 +217,10 @@ mod tests {
             url: "https://api.test/agents/a/agent-card.json".into(),
         };
         let bytes = b"{\"card\":true}";
-        let signed = trust.manifest_for(&entry, bytes).await.unwrap();
+        let signed = trust
+            .manifest_for(&entry, bytes, &Claims::default())
+            .await
+            .unwrap();
         let now = Utc::now();
         let check = |m: &Value| {
             verify_manifest(
@@ -265,7 +268,10 @@ mod tests {
             VerifyError::ManifestMalformed
         );
         let rogue = LocalTrust::ephemeral("https://api.test");
-        let forged = rogue.manifest_for(&entry, bytes).await.unwrap();
+        let forged = rogue
+            .manifest_for(&entry, bytes, &Claims::default())
+            .await
+            .unwrap();
         assert_eq!(
             check(&forged).unwrap_err(),
             VerifyError::ManifestSignatureInvalid
@@ -277,7 +283,10 @@ mod tests {
             url: "https://api.test/agents/b/agent-card.json".into(),
             ..entry.clone()
         };
-        let other = trust.manifest_for(&moved, bytes).await.unwrap();
+        let other = trust
+            .manifest_for(&moved, bytes, &Claims::default())
+            .await
+            .unwrap();
         assert_eq!(
             check(&other).unwrap_err(),
             VerifyError::ManifestSubjectMismatch
@@ -307,7 +316,7 @@ mod tests {
 
     #[tokio::test]
     async fn catalog_signature_covers_every_member_but_itself() {
-        let trust = LocalTrust::ephemeral("https://api.test");
+        let trust = Operator::ephemeral("https://api.test");
         let keys = jose::Jwks::parse(&trust.jwks()).unwrap();
         let mut catalog = json!({"specVersion":"1.0","host":{"displayName":"h"},"entries":[]});
         assert_eq!(
@@ -331,7 +340,7 @@ mod tests {
         let mut minor = json!({"specVersion":"1.3","host":{"displayName":"h"},"entries":[]});
         trust.sign_catalog(&mut minor).await.unwrap();
         verify_catalog(&minor, &keys).unwrap();
-        let rogue = jose::Jwks::parse(&LocalTrust::ephemeral("https://api.test").jwks()).unwrap();
+        let rogue = jose::Jwks::parse(&Operator::ephemeral("https://api.test").jwks()).unwrap();
         assert_eq!(
             verify_catalog(&catalog, &rogue).unwrap_err(),
             VerifyError::CatalogSignatureInvalid

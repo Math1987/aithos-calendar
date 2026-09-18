@@ -3,7 +3,7 @@ use crate::{
     booking_page::{BookingPages, PageError},
     scheduling::Slot,
     storage::{AgentStore, Record},
-    trust::{AgentKey, EntryDraft, TrustError, TrustProvider, manifest::CARD_TYPE},
+    trust::{AgentKey, Claims, EntryDraft, TrustError, TrustProvider, card, manifest::CARD_TYPE},
 };
 use axum::{
     Json,
@@ -20,7 +20,10 @@ pub struct Identities {
     pub store: Arc<dyn AgentStore>,
     pub base: String,
     pub publisher: Publisher,
+    /// Guarantor: signs entry manifests.
     pub trust: Arc<dyn TrustProvider>,
+    /// Operator: signs the catalog document and the host manifest.
+    pub operator: Arc<crate::trust::Operator>,
     pub website: String,
     pub pages: Arc<dyn BookingPages>,
     pub reader: Option<Arc<dyn crate::availability::AvailabilityReader>>,
@@ -36,7 +39,7 @@ pub fn jwks_url(base: &str, id: &str) -> String {
 }
 
 /// Issue a publishable record for `agent`: a fresh signing key, the signed
-/// card served on this deployment, and the operator-signed catalog manifest
+/// card served on this deployment, and the guarantor-signed catalog manifest
 /// bound to those exact card bytes. Nothing leaves this process; the record
 /// is discoverable as soon as it is stored.
 pub async fn issue(
@@ -59,15 +62,16 @@ pub async fn reissue(
     let base = base.trim_end_matches('/');
     let card = serde_json::to_value(agent.card(base))
         .map_err(|_| TrustError::InvalidInput("agent_card"))?;
-    let signed = trust
-        .sign_card(card, &key, &jwks_url(base, &agent.id))
-        .await?;
+    let signed = card::sign(card, &key, &jwks_url(base, &agent.id))?;
     let entry = EntryDraft {
         identifier: Publisher::from_base(base).urn(&agent.id),
         entry_type: CARD_TYPE.into(),
         url: card_url(base, &agent.id),
     };
-    let manifest = trust.manifest_for(&entry, &signed.bytes).await?;
+    let claims = Claims {
+        account_verified: agent.google_account,
+    };
+    let manifest = trust.manifest_for(&entry, &signed.bytes, &claims).await?;
     let record = Record {
         card_url: entry.url,
         card_bytes: String::from_utf8(signed.bytes)

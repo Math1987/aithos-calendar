@@ -38,14 +38,17 @@ pub struct Config {
     pub base_url: String,
     pub catalog_url: String,
     pub website: String,
+    /// Guarantor (signs entry manifests).
     pub trust: Arc<dyn TrustProvider>,
+    /// Operator (signs the catalog document).
+    pub operator: Arc<trust::Operator>,
     pub store: Arc<dyn storage::AgentStore>,
     pub pages: Arc<dyn booking_page::BookingPages>,
     pub reader: Option<Arc<dyn availability::AvailabilityReader>>,
     pub connected: Option<Arc<connected::Connected>>,
-    /// Operator identities whose manifests the discovery client accepts.
-    /// Defaults to this deployment's own trust provider.
-    pub trusted_identities: Vec<String>,
+    /// Guarantor identities whose manifests the discovery client accepts.
+    /// Defaults to this deployment's own guarantor.
+    pub trusted_guarantors: Vec<String>,
 }
 
 impl Config {
@@ -64,7 +67,8 @@ impl Config {
         Self {
             catalog_url: format!("{base_url}/.well-known/ai-catalog.json"),
             website: base_url.clone(),
-            trusted_identities: vec![trust.identity().to_owned()],
+            trusted_guarantors: vec![trust.identity().to_owned()],
+            operator: Arc::new(trust::Operator::ephemeral(&base_url)),
             trust,
             store,
             pages: Arc::new(booking_page::GoogleBookingPages::new().expect("page adapter")),
@@ -96,8 +100,12 @@ impl Config {
         self.connected = connected;
         self
     }
-    pub fn with_trusted_identities(mut self, identities: Vec<String>) -> Self {
-        self.trusted_identities = identities;
+    pub fn with_trusted_guarantors(mut self, identities: Vec<String>) -> Self {
+        self.trusted_guarantors = identities;
+        self
+    }
+    pub fn with_operator(mut self, operator: Arc<trust::Operator>) -> Self {
+        self.operator = operator;
         self
     }
     /// The discovery client this configuration implies.
@@ -105,7 +113,7 @@ impl Config {
         discovery::PeerDirectory::new(
             &self.base_url,
             &self.catalog_url,
-            self.trusted_identities.clone(),
+            self.trusted_guarantors.clone(),
         )
     }
 }
@@ -122,6 +130,7 @@ pub fn build(config: Config) -> Result<Router, lambda_http::Error> {
         base: config.base_url.clone(),
         publisher: agents::Publisher::from_base(&config.base_url),
         trust: config.trust,
+        operator: config.operator,
         website: config.website,
         pages: config.pages,
         reader: config.reader.clone(),
@@ -134,6 +143,10 @@ pub fn build(config: Config) -> Result<Router, lambda_http::Error> {
     let routes = Router::new()
         .route("/.well-known/ai-catalog.json", get(catalog::serve))
         .route("/.well-known/jwks.json", get(catalog::operator_jwks))
+        .route(
+            "/trust-provider/.well-known/jwks.json",
+            get(catalog::guarantor_jwks),
+        )
         .route("/agents/{tenant}/agent-card.json", get(catalog::card))
         .route("/agents/{tenant}/jwks.json", get(catalog::agent_jwks))
         .route("/agents/{tenant}/schedule", get(identities::schedule))

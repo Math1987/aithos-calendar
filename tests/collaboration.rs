@@ -85,7 +85,8 @@ async fn start(mode: &'static str) -> Server {
             } else { json!({"unexpected":true}) };
             (if mode == "unavailable" { StatusCode::SERVICE_UNAVAILABLE } else { StatusCode::OK }, Json(reply))
         }));
-    let config = calendar::Config::new(&base, fixture.trust.clone(), fixture.store.clone())
+    let config = fixture
+        .config()
         .with_catalog(&format!("{base}/registry/catalog"));
     let app = calendar::build(config)
         .unwrap()

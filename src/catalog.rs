@@ -2,7 +2,7 @@
 //! sets that verify it: a Level 3 "Trusted" catalog assembled from the
 //! published records and signed on the way out.
 //!
-//! Every entry carries the operator-signed `trustManifest` stored with its
+//! Every entry carries the guarantor-signed `trustManifest` stored with its
 //! record; a stale manifest (moved URL, changed digest, near expiry) is
 //! re-signed and persisted best-effort so the served document is always
 //! verifiable. The top-level `signature` is recomputed whenever the unsigned
@@ -41,7 +41,7 @@ fn entry(state: &Identities, record: &Record) -> Value {
         "url": record.card_url,
         "version": record.card_version,
         "updatedAt": record.updated_at,
-        "publisher": {"identifier": state.trust.identity(), "displayName": "Calendar agents"},
+        "publisher": {"identifier": state.operator.identity(), "displayName": "Calendar agents"},
         "description": if agent.google_account {
             "Account-linked Google Calendar agent; operation authorization required."
         } else if agent.live {
@@ -74,9 +74,12 @@ async fn current_manifest(state: &Identities, record: &mut Record) {
     if current {
         return;
     }
+    let claims = crate::trust::Claims {
+        account_verified: record.agent.google_account,
+    };
     match state
         .trust
-        .manifest_for(&draft, record.card_bytes.as_bytes())
+        .manifest_for(&draft, record.card_bytes.as_bytes(), &claims)
         .await
     {
         Ok(fresh) => {
@@ -110,7 +113,7 @@ pub async fn document(state: &Identities) -> Result<Value, StatusCode> {
         "specVersion": "1.0",
         "host": {
             "displayName": "Calendar agents",
-            "identifier": state.trust.identity(),
+            "identifier": state.operator.identity(),
             "documentationUrl": format!("{}/", state.website.trim_end_matches('/')),
         },
         "entries": entries,
@@ -133,12 +136,12 @@ pub async fn signed_bytes(
     {
         return Ok(bytes);
     }
-    document["host"]["trustManifest"] = state.trust.host_manifest().await.map_err(|error| {
+    document["host"]["trustManifest"] = state.operator.host_manifest().await.map_err(|error| {
         tracing::warn!(target: "calendar::trust", event = "host_manifest_failed", code = %error);
         StatusCode::SERVICE_UNAVAILABLE
     })?;
     state
-        .trust
+        .operator
         .sign_catalog(&mut document)
         .await
         .map_err(|error| {
@@ -210,6 +213,15 @@ pub async fn serve(State(state): State<Arc<Identities>>) -> Response {
 /// `GET /.well-known/jwks.json`: the operator key set, byte-exact with the
 /// host manifest's `subject.digest`.
 pub async fn operator_jwks(State(state): State<Arc<Identities>>) -> Response {
+    match jose::canonicalize(&state.operator.jwks()) {
+        Ok(bytes) => json_document(bytes, "application/jwk-set+json", "public, max-age=300"),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+/// `GET /trust-provider/.well-known/jwks.json`: the guarantor key set that
+/// verifies every entry manifest.
+pub async fn guarantor_jwks(State(state): State<Arc<Identities>>) -> Response {
     match jose::canonicalize(&state.trust.jwks()) {
         Ok(bytes) => json_document(bytes, "application/jwk-set+json", "public, max-age=300"),
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),

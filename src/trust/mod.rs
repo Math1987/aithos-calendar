@@ -1,24 +1,23 @@
 //! The trust layer: who signs what, with which key, over which bytes.
 //!
-//! Three artifacts are signed and later verified end to end
-//! (see `docs/trust-layer.md`):
+//! Three roles hold keys (see `docs/trust-layer.md`):
 //!
-//! | Artifact | Signer | Bytes signed | Where the public key is |
+//! | Role | Signs | Bytes signed | Public key location |
 //! | --- | --- | --- | --- |
-//! | A2A Agent Card | the agent's own P-256 key, one per agent | JCS(card without `signatures`) | `https://<api>/agents/{id}/jwks.json` (`jku`) |
-//! | AI Catalog `trustManifest` (host and every entry) | the catalog operator key | JCS(manifest without `signature`) | `https://<api>/.well-known/jwks.json` (= `identity`) |
-//! | AI Catalog document | the catalog operator key | JCS(catalog without `signature`) | same operator key set |
+//! | **Agent** (one P-256 key per agent) | its A2A Agent Card | JCS(card without `signatures`) | `https://<api>/agents/{id}/jwks.json` (card `jku`) |
+//! | **Operator** (hosts catalog and cards) | the catalog document and the host `trustManifest` | JCS(document without `signature`) | `https://<api>/.well-known/jwks.json` (= `host.identifier`) |
+//! | **Guarantor** (simulated trust provider) | every entry `trustManifest`, including its attestations | JCS(manifest without `signature`) | `https://<api>/trust-provider/.well-known/jwks.json` (= manifest `identity`) |
 //!
-//! [`TrustProvider`] is the producing side. [`LocalTrust`] is the only
-//! implementation in this proof of concept: trust decisions are made in this
-//! process, and key custody is delegated to an [`OperatorSigner`] — an
-//! in-memory key for tests and local runs, or AWS KMS in production so that
-//! the private key never leaves the HSM boundary. A future external trust
-//! provider is another `TrustProvider` implementation selected by
-//! configuration (`TRUST_PROVIDER`); the A2A code and the catalog format do
-//! not change.
+//! The operator and the guarantor are two keys in this proof of concept even
+//! though one deployment runs both, so that a consumer can pin guarantors
+//! independently of the catalogs it reads. [`TrustProvider`] is the
+//! guarantor role: [`LocalTrust`] is the only implementation, and an
+//! external trust provider would be another implementation selected by
+//! `TRUST_PROVIDER`, without changes to the A2A code or the catalog format.
+//! Key custody is delegated to an [`OperatorSigner`]: in-memory for tests and
+//! local runs, AWS KMS in production so private keys never leave the HSM.
 //!
-//! [`verify`] is the consuming side and has no dependency on the provider.
+//! [`verify`] is the consuming side and depends on none of the above.
 use async_trait::async_trait;
 use p256::ecdsa::{Signature, SigningKey, VerifyingKey, signature::Signer};
 use serde_json::{Value, json};
@@ -163,46 +162,55 @@ pub struct EntryDraft {
     pub url: String,
 }
 
+/// What the guarantor knows about the agent behind an entry. Only facts
+/// established by this deployment reach a manifest; nothing identifying.
+#[derive(Clone, Debug, Default)]
+pub struct Claims {
+    /// The agent belongs to an account whose identity was verified by
+    /// Google sign-in (OpenID Connect, `email_verified`).
+    pub account_verified: bool,
+}
+
+/// Attestation type for a verified account (AI Catalog `attestations[].type`
+/// is free-form; this value is documented in `docs/trust-layer.md`).
+pub const ACCOUNT_VERIFIED: &str = "account-verified";
+
+/// The guarantor role of AI Catalog: signs entry manifests that bind an
+/// exact card and carry attestations a consumer's policy can require.
 #[async_trait]
 pub trait TrustProvider: Send + Sync {
-    /// Operator identity URI. It is the URL of the operator JWK Set, so an
-    /// AI Catalog consumer resolves the verification key from the identity
-    /// alone (AI Catalog §Key Resolution, HTTPS URL form).
+    /// Guarantor identity URI: the URL of its JWK Set, so an AI Catalog
+    /// consumer resolves the verification key from the identity alone
+    /// (AI Catalog §Key Resolution, HTTPS URL form).
     fn identity(&self) -> &str;
-    /// The operator JWK Set document, served verbatim at [`Self::identity`].
+    /// The guarantor JWK Set document, served verbatim at [`Self::identity`].
     fn jwks(&self) -> Value;
-    /// Sign an A2A Agent Card (A2A §Agent Card Signing: JWS + JCS) with the
-    /// agent's key. `jku` is where the agent's JWK Set will be served.
-    async fn sign_card(
-        &self,
-        card: Value,
-        key: &AgentKey,
-        jku: &str,
-    ) -> Result<SignedCard, TrustError>;
-    /// Build and sign the AI Catalog `trustManifest` of one entry, binding
+    /// Build and sign the `trustManifest` of one entry, binding
     /// `subject.digest` to the exact served card bytes.
     async fn manifest_for(
         &self,
         entry: &EntryDraft,
         card_bytes: &[u8],
+        claims: &Claims,
     ) -> Result<Value, TrustError>;
-    /// The host's own `trustManifest`, binding the operator JWK Set.
-    async fn host_manifest(&self) -> Result<Value, TrustError>;
-    /// Sign the whole catalog: `signature` over JCS(catalog without `signature`).
-    async fn sign_catalog(&self, catalog: &mut Value) -> Result<(), TrustError>;
 }
 
-/// The proof-of-concept provider: signs in this process with an
-/// [`OperatorSigner`] for the operator key and the agent's own key for cards.
-pub struct LocalTrust {
+async fn sign_detached(signer: &dyn OperatorSigner, payload: &[u8]) -> Result<String, TrustError> {
+    let protected = jose::protected_header(signer.kid(), json!({}))?;
+    let signature = signer
+        .sign(&jose::signing_input(&protected, payload))
+        .await?;
+    Ok(jose::detached_compact(&protected, &signature))
+}
+
+/// The operator role: hosts the catalog and signs the document itself.
+pub struct Operator {
     identity: String,
     signer: Arc<dyn OperatorSigner>,
-    /// Validity of a freshly signed manifest.
     pub manifest_ttl: chrono::Duration,
 }
 
-impl LocalTrust {
-    /// Operator identity for an API base URL: the operator JWK Set URL.
+impl Operator {
     pub fn identity_for(base_url: &str) -> String {
         format!("{}/.well-known/jwks.json", base_url.trim_end_matches('/'))
     }
@@ -213,20 +221,70 @@ impl LocalTrust {
             manifest_ttl: chrono::Duration::days(90),
         }
     }
-    /// A provider with a random in-memory operator key (tests, local runs).
     pub fn ephemeral(base_url: &str) -> Self {
         Self::new(base_url, Arc::new(MemorySigner::random()))
     }
-    fn now() -> chrono::DateTime<chrono::Utc> {
-        chrono::Utc::now()
+    pub fn identity(&self) -> &str {
+        &self.identity
     }
-    async fn sign_detached(&self, payload: &[u8]) -> Result<String, TrustError> {
-        let protected = jose::protected_header(self.signer.kid(), json!({}))?;
-        let signature = self
-            .signer
-            .sign(&jose::signing_input(&protected, payload))
-            .await?;
-        Ok(jose::detached_compact(&protected, &signature))
+    pub fn jwks(&self) -> Value {
+        json!({"keys": [self.signer.public_jwk()]})
+    }
+    /// The host's own `trustManifest`, binding the operator JWK Set.
+    pub async fn host_manifest(&self) -> Result<Value, TrustError> {
+        let now = chrono::Utc::now();
+        let jwks_bytes = jose::canonicalize(&self.jwks())?;
+        let mut manifest = manifest::host_draft(
+            &self.identity,
+            &jose::digest(&jwks_bytes),
+            now,
+            now + self.manifest_ttl,
+        );
+        let signature =
+            sign_detached(self.signer.as_ref(), &manifest::signing_payload(&manifest)?).await?;
+        manifest["signature"] = json!(signature);
+        Ok(manifest)
+    }
+    /// Sign the whole catalog: `signature` over JCS(catalog without `signature`).
+    pub async fn sign_catalog(&self, catalog: &mut Value) -> Result<(), TrustError> {
+        if !catalog.is_object() {
+            return Err(TrustError::InvalidInput("catalog"));
+        }
+        let signature =
+            sign_detached(self.signer.as_ref(), &manifest::signing_payload(catalog)?).await?;
+        catalog["signature"] = json!(signature);
+        Ok(())
+    }
+}
+
+/// The proof-of-concept guarantor: signs manifests in this process with the
+/// key held by its [`OperatorSigner`].
+pub struct LocalTrust {
+    identity: String,
+    signer: Arc<dyn OperatorSigner>,
+    /// Validity of a freshly signed manifest.
+    pub manifest_ttl: chrono::Duration,
+}
+
+impl LocalTrust {
+    /// Guarantor identity for an API base URL: its JWK Set URL, on the same
+    /// host as the operator so AI Catalog's domain alignment rule holds.
+    pub fn identity_for(base_url: &str) -> String {
+        format!(
+            "{}/trust-provider/.well-known/jwks.json",
+            base_url.trim_end_matches('/')
+        )
+    }
+    pub fn new(base_url: &str, signer: Arc<dyn OperatorSigner>) -> Self {
+        Self {
+            identity: Self::identity_for(base_url),
+            signer,
+            manifest_ttl: chrono::Duration::days(90),
+        }
+    }
+    /// A guarantor with a random in-memory key (tests, local runs).
+    pub fn ephemeral(base_url: &str) -> Self {
+        Self::new(base_url, Arc::new(MemorySigner::random()))
     }
 }
 
@@ -238,20 +296,13 @@ impl TrustProvider for LocalTrust {
     fn jwks(&self) -> Value {
         json!({"keys": [self.signer.public_jwk()]})
     }
-    async fn sign_card(
-        &self,
-        card: Value,
-        key: &AgentKey,
-        jku: &str,
-    ) -> Result<SignedCard, TrustError> {
-        card::sign(card, key, jku)
-    }
     async fn manifest_for(
         &self,
         entry: &EntryDraft,
         card_bytes: &[u8],
+        claims: &Claims,
     ) -> Result<Value, TrustError> {
-        let now = Self::now();
+        let now = chrono::Utc::now();
         let mut manifest = manifest::draft(
             &self.identity,
             entry,
@@ -259,47 +310,55 @@ impl TrustProvider for LocalTrust {
             now,
             now + self.manifest_ttl,
         );
-        let signature = self
-            .sign_detached(&manifest::signing_payload(&manifest)?)
-            .await?;
-        manifest["signature"] = json!(signature);
-        Ok(manifest)
-    }
-    async fn host_manifest(&self) -> Result<Value, TrustError> {
-        let now = Self::now();
-        let jwks_bytes = jose::canonicalize(&self.jwks())?;
-        let mut manifest = manifest::host_draft(
-            &self.identity,
-            &jose::digest(&jwks_bytes),
-            now,
-            now + self.manifest_ttl,
-        );
-        let signature = self
-            .sign_detached(&manifest::signing_payload(&manifest)?)
-            .await?;
-        manifest["signature"] = json!(signature);
-        Ok(manifest)
-    }
-    async fn sign_catalog(&self, catalog: &mut Value) -> Result<(), TrustError> {
-        if !catalog.is_object() {
-            return Err(TrustError::InvalidInput("catalog"));
+        if claims.account_verified {
+            manifest["attestations"] = json!([manifest::account_attestation(now)]);
         }
-        let signature = self
-            .sign_detached(&manifest::signing_payload(catalog)?)
-            .await?;
-        catalog["signature"] = json!(signature);
-        Ok(())
+        let signature =
+            sign_detached(self.signer.as_ref(), &manifest::signing_payload(&manifest)?).await?;
+        manifest["signature"] = json!(signature);
+        Ok(manifest)
     }
 }
 
-/// Select the provider from configuration. `TRUST_PROVIDER` names the
-/// implementation (only `local` exists); `TRUST_KMS_KEY_ID` moves the
-/// operator key into KMS. Without it the key is ephemeral, which is only
-/// acceptable for local runs because the catalog identity changes on every
-/// start.
+/// Key custody for one role from configuration: a KMS key id when set,
+/// otherwise an ephemeral in-memory key, which is only acceptable for local
+/// runs because the published identity changes on every start.
+async fn signer_from_env(
+    variable: &str,
+    kms: Option<&aws_sdk_kms::Client>,
+) -> Result<Arc<dyn OperatorSigner>, lambda_http::Error> {
+    Ok(match (std::env::var(variable), kms) {
+        (Ok(key_id), Some(client)) => Arc::new(kms::KmsSigner::load(client.clone(), key_id).await?),
+        (Ok(_), None) => return Err(format!("{variable} requires an AWS client").into()),
+        (Err(_), _) => {
+            tracing::warn!(
+                target: "calendar::trust",
+                event = "ephemeral_key",
+                role = variable,
+                "no KMS key configured; using an in-memory key"
+            );
+            Arc::new(MemorySigner::random())
+        }
+    })
+}
+
+/// The operator key from `OPERATOR_KMS_KEY_ID`.
+pub async fn operator_from_env(
+    base_url: &str,
+    kms: Option<&aws_sdk_kms::Client>,
+) -> Result<Arc<Operator>, lambda_http::Error> {
+    Ok(Arc::new(Operator::new(
+        base_url,
+        signer_from_env("OPERATOR_KMS_KEY_ID", kms).await?,
+    )))
+}
+
+/// The guarantor from configuration. `TRUST_PROVIDER` names the
+/// implementation (only `local` exists); `TRUST_KMS_KEY_ID` moves its key
+/// into KMS.
 pub async fn from_env(
     base_url: &str,
-    kms: Option<aws_sdk_kms::Client>,
+    kms: Option<&aws_sdk_kms::Client>,
 ) -> Result<Arc<dyn TrustProvider>, lambda_http::Error> {
     let provider = std::env::var("TRUST_PROVIDER").unwrap_or_else(|_| "local".into());
     if provider != "local" {
@@ -307,17 +366,8 @@ pub async fn from_env(
             format!("Unknown TRUST_PROVIDER `{provider}`; only `local` is implemented").into(),
         );
     }
-    let signer: Arc<dyn OperatorSigner> = match (std::env::var("TRUST_KMS_KEY_ID"), kms) {
-        (Ok(key_id), Some(client)) => Arc::new(kms::KmsSigner::load(client, key_id).await?),
-        (Ok(_), None) => return Err("TRUST_KMS_KEY_ID requires an AWS client".into()),
-        (Err(_), _) => {
-            tracing::warn!(
-                target: "calendar::trust",
-                event = "ephemeral_operator_key",
-                "TRUST_KMS_KEY_ID is not set; using an in-memory operator key"
-            );
-            Arc::new(MemorySigner::random())
-        }
-    };
-    Ok(Arc::new(LocalTrust::new(base_url, signer)))
+    Ok(Arc::new(LocalTrust::new(
+        base_url,
+        signer_from_env("TRUST_KMS_KEY_ID", kms).await?,
+    )))
 }
