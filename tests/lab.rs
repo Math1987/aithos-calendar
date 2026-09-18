@@ -185,3 +185,35 @@ async fn scenario_catalogs_are_well_formed_documents_the_sdk_can_read() {
     assert_eq!(status, 404);
     let _ = Arc::new(());
 }
+
+/// With a single published agent the catalog scenarios run and the caller
+/// cases are skipped, which is not a divergence; with none, the lab says so.
+#[tokio::test]
+async fn one_agent_runs_the_catalog_scenarios_and_skips_the_caller_cases() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    drop(listener);
+    let fixture = common::Fixture::new(
+        &base,
+        vec![common::mock_agent("alice", &[("09:00", "10:00")])],
+    )
+    .await;
+    let (base, _job) = fixture.serve(fixture.config()).await;
+    let (status, report) = get(&format!("{base}/lab/report?policy=guaranteed")).await;
+    assert_eq!(status, 200, "{report}");
+    assert_eq!(report["passed"], true, "{report}");
+    assert_eq!(
+        report["results"].as_array().unwrap().len(),
+        calendar::lab::SCENARIOS.len()
+    );
+    assert_eq!(report["callers"][0]["case"], "skipped");
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    drop(listener);
+    let empty = common::Fixture::new(&base, vec![]).await;
+    let (base, _job) = empty.serve(empty.config()).await;
+    let (status, report) = get(&format!("{base}/lab/report?policy=guaranteed")).await;
+    assert_eq!(status, 409, "{report}");
+    assert_eq!(report["error"], "no_published_agent");
+}

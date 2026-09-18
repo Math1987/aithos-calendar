@@ -524,7 +524,10 @@ pub async fn run(state: &LabState, policy: Policy, trace_id: &str) -> Result<Val
         }));
     }
     let callers = caller_cases(state, &records, trace_id).await;
-    passed &= callers.iter().all(|c| c["passed"] == true);
+    // A skipped case (only one published agent) is not a divergence.
+    passed &= callers
+        .iter()
+        .all(|c| c["case"] == "skipped" || c["passed"] == true);
     Ok(json!({
         "policy": policy.name(),
         "peer": peer,
