@@ -29,6 +29,58 @@ fn structured_reply(text: &str, data: Value) -> SendMessageResponse {
 }
 
 impl CalendarHandler {
+    /// Inbound caller authentication: verify the `Agent-Signature` header
+    /// when present, and insist on it when `required`. The caller is
+    /// resolved through the catalog at `policy`, so an unguaranteed agent
+    /// cannot authenticate even with a valid key.
+    #[allow(clippy::too_many_arguments)]
+    async fn verify_caller(
+        &self,
+        params: &ServiceParams,
+        audience: &str,
+        message_id: &str,
+        operation: &str,
+        policy: crate::trust::Policy,
+        required: bool,
+        trace_id: &str,
+    ) -> Result<Option<crate::trust::caller::Claims>, &'static str> {
+        use crate::trust::caller::{self, CallerError};
+        let header = params
+            .get(caller::HEADER)
+            .and_then(|values| values.first())
+            .cloned();
+        let rejected = |error: CallerError| {
+            tracing::warn!(target: "calendar::trust", event = "caller_rejected", trace_id, operation, code = error.code());
+            error.code()
+        };
+        let Some(header) = header else {
+            if required {
+                return Err(rejected(CallerError::Missing));
+            }
+            return Ok(None);
+        };
+        let issuer = caller::issuer_of(&header).map_err(rejected)?;
+        let verified = match self.directory.resolve(&issuer, trace_id, policy).await {
+            Ok(verified) => verified,
+            Err(error) => {
+                tracing::warn!(target: "calendar::trust", event = "caller_rejected", trace_id, operation, issuer, code = error.code());
+                return Err(CallerError::Unguaranteed.code());
+            }
+        };
+        let claims = caller::verify(
+            &header,
+            &verified.keys,
+            &verified.card_kid,
+            audience,
+            message_id,
+            operation,
+            chrono::Utc::now(),
+        )
+        .map_err(rejected)?;
+        tracing::info!(target: "calendar::trust", event = "caller_verified", trace_id, operation, issuer = %claims.issuer, kid = %claims.kid, policy = %policy);
+        Ok(Some(claims))
+    }
+
     async fn agent(&self, tenant: Option<&str>) -> Result<crate::agents::Agent, A2AError> {
         let id = tenant
             .filter(|id| crate::valid_tenant(id))
@@ -217,11 +269,6 @@ impl CalendarHandler {
             )));
         }
         if agent.google_account {
-            let Some(service) = &self.connected else {
-                return Err(A2AError::unsupported_operation(
-                    "Calendar connector not configured",
-                ));
-            };
             let [
                 Part {
                     content: PartContent::Data(data),
@@ -231,7 +278,41 @@ impl CalendarHandler {
             else {
                 return Err(A2AError::content_type_not_supported());
             };
-            return match service.handle(&agent.id, params, data).await {
+            let operation = data["operation"].as_str().unwrap_or_default();
+            let policy = if operation == "commit_booking" {
+                self.policies.booking
+            } else {
+                self.policies.live
+            };
+            let claims = match self
+                .verify_caller(
+                    params,
+                    &self.publisher.urn(&agent.id),
+                    &req.message.message_id,
+                    operation,
+                    policy,
+                    true,
+                    trace_id,
+                )
+                .await
+            {
+                Ok(claims) => claims,
+                Err(code) => {
+                    return Ok(structured_reply(
+                        "Caller could not be authenticated",
+                        json!({"status":"error","code":code}),
+                    ));
+                }
+            };
+            let Some(service) = &self.connected else {
+                return Err(A2AError::unsupported_operation(
+                    "Calendar connector not configured",
+                ));
+            };
+            return match service
+                .handle(&agent.id, params, data, claims.as_ref())
+                .await
+            {
                 Ok(data) => Ok(structured_reply("Calendar agent response", data)),
                 Err(code) => Ok(structured_reply(
                     "Calendar operation could not be completed",
@@ -258,6 +339,32 @@ impl CalendarHandler {
             Operation::FindCommonSlot { .. } => "find_common_slot",
         };
         tracing::info!(event = "operation_received", operation = operation_name);
+        // Real availability handed to another agent requires an authenticated,
+        // guaranteed caller; mock data verifies a signature only when present.
+        let leaf_with_window = matches!(&operation, Operation::GetAvailability { window: Some(_) });
+        let required = agent.live && leaf_with_window;
+        if let Err(code) = self
+            .verify_caller(
+                params,
+                &self.publisher.urn(&agent.id),
+                &req.message.message_id,
+                operation_name,
+                if agent.live {
+                    self.policies.live
+                } else {
+                    self.policies.mock
+                },
+                required,
+                trace_id,
+            )
+            .await
+        {
+            return Ok(structured_reply(
+                "Caller could not be authenticated; nothing was shared",
+                json!({"status":"error", "code":code, "organizer":self.publisher.urn(&agent.id),
+                    "mock":!agent.live, "reserved":false, "trace_id":trace_id}),
+            ));
+        }
         if agent.live {
             return self.handle_live(&agent, operation, trace_id).await;
         }

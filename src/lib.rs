@@ -127,11 +127,12 @@ impl Config {
     }
     /// The discovery client this configuration implies.
     pub fn directory(&self) -> Result<discovery::PeerDirectory, lambda_http::Error> {
-        discovery::PeerDirectory::new(
+        Ok(discovery::PeerDirectory::new(
             &self.base_url,
             &self.catalog_url,
             self.trusted_guarantors.clone(),
-        )
+        )?
+        .with_store(self.store.clone()))
     }
 }
 

@@ -516,12 +516,126 @@ pub async fn run(state: &LabState, policy: Policy, trace_id: &str) -> Result<Val
             "note": scenario.note,
         }));
     }
+    let callers = caller_cases(state, &records, trace_id).await;
+    passed &= callers.iter().all(|c| c["passed"] == true);
     Ok(json!({
         "policy": policy.name(),
         "peer": peer,
         "trace_id": trace_id,
         "passed": passed,
         "results": results,
+        "callers": callers,
         "logs": format!("{}/logs?trace={trace_id}", identities.website.trim_end_matches('/')),
     }))
+}
+
+/// Inbound direction: `get_availability` sent to the first agent with an
+/// `Agent-Signature` header crafted for each case. The reply's `code`
+/// (or its `status`) is compared with the expectation.
+async fn caller_cases(state: &LabState, records: &[Record], trace_id: &str) -> Vec<Value> {
+    let identities = &state.identities;
+    let (Some(callee), Some(caller)) = (records.first(), records.get(1)) else {
+        return vec![json!({"case":"skipped","note":"the lab needs two published agents"})];
+    };
+    let audience = identities.publisher.urn(&callee.agent.id);
+    let caller_urn = identities.publisher.urn(&caller.agent.id);
+    let caller_key = match identities.store.signing_key(&caller.agent.id).await {
+        Ok(Some(encoded)) => crate::trust::AgentKey::decode(&encoded).ok(),
+        _ => None,
+    };
+    let rogue = crate::trust::AgentKey::from_key(state.lab.rogue.signing_key().clone());
+    let now = chrono::Utc::now();
+    let mut results = Vec::new();
+    // An account-linked callee also needs a capability token, which the lab
+    // does not mint: a valid signature then stops at the capability check,
+    // which is the evidence that the signature is checked first.
+    let account = callee.agent.google_account;
+    let cases: [(
+        &str,
+        Option<(&crate::trust::AgentKey, &str)>,
+        Option<&str>,
+        &str,
+    ); 4] = [
+        (
+            "unsigned-caller",
+            None,
+            if account {
+                Some("caller_signature_missing")
+            } else {
+                None
+            },
+            "Mock availability is public: a missing signature is tolerated for mock data, never for real data or account-linked agents.",
+        ),
+        (
+            "signed-caller",
+            caller_key.as_ref().map(|k| (k, caller_urn.as_str())),
+            if account {
+                Some("a2a_authorization_required")
+            } else {
+                None
+            },
+            "The caller is resolved through the catalog and its request signature verifies under the key that signed its card; an account-linked callee then still requires its operation capability.",
+        ),
+        (
+            "unguaranteed-caller",
+            Some((&rogue, "urn:air:example.invalid:agent:nobody")),
+            Some("caller_unguaranteed"),
+            "An issuer that no trusted catalog lists cannot authenticate, whatever key it holds.",
+        ),
+        (
+            "forged-caller",
+            Some((&rogue, caller_urn.as_str())),
+            Some("caller_key_mismatch"),
+            "A known issuer with a key other than the one that signed its card is refused.",
+        ),
+    ];
+    let http = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(std::time::Duration::from_secs(8))
+        .build()
+        .expect("client");
+    for (name, signer, expected, note) in cases {
+        let message_id = a2a::new_message_id();
+        let mut request = http.post(format!("{}/a2a", identities.base)).json(&json!({
+            "jsonrpc":"2.0", "id":name, "method":"SendMessage", "params":{
+                "tenant": callee.agent.id, "metadata": {"calendarTraceId": trace_id},
+                "message": {"role":"ROLE_USER", "messageId": message_id,
+                            "parts":[{"data":{"operation":"get_availability"}}]}
+            }
+        }));
+        if let Some((key, issuer)) = signer
+            && let Ok(header) = crate::trust::caller::sign(
+                key,
+                issuer,
+                &audience,
+                &message_id,
+                "get_availability",
+                now,
+            )
+        {
+            request = request.header(crate::trust::caller::HEADER, header);
+        }
+        let actual = match request.send().await {
+            Ok(response) => match response.json::<Value>().await {
+                Ok(reply) => reply["result"]["message"]["parts"]
+                    .as_array()
+                    .and_then(|parts| parts.iter().find_map(|p| p.get("data")))
+                    .map(|data| {
+                        if data["status"] == "error" {
+                            data["code"].as_str().unwrap_or("error").to_owned()
+                        } else {
+                            "accepted".to_owned()
+                        }
+                    })
+                    .unwrap_or_else(|| "invalid_reply".to_owned()),
+                Err(_) => "invalid_reply".to_owned(),
+            },
+            Err(_) => "unavailable".to_owned(),
+        };
+        let expected = expected.unwrap_or("accepted");
+        results.push(json!({
+            "case": name, "expected": expected, "actual": actual, "passed": actual == expected, "note": note,
+        }));
+    }
+    results
 }

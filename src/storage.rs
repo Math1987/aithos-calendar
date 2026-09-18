@@ -49,6 +49,8 @@ pub trait AgentStore: Send + Sync {
     async fn get(&self, id: &str) -> Result<Option<Record>, StoreError>;
     /// Atomic insert. Keep the recovery signing key separate from readable records.
     async fn create(&self, record: &Record, signing_key: &str) -> Result<bool, StoreError>;
+    /// The agent's own signing key, needed to sign outgoing requests.
+    async fn signing_key(&self, id: &str) -> Result<Option<String>, StoreError>;
     async fn publish(&self, id: &str) -> Result<(), StoreError>;
     /// Replace the readable record of an existing agent (re-signed card or
     /// refreshed manifest). The signing key is untouched.
@@ -95,6 +97,15 @@ impl AgentStore for MemoryStore {
                 Ok(true)
             }
         }
+    }
+    async fn signing_key(&self, id: &str) -> Result<Option<String>, StoreError> {
+        Ok(self
+            .0
+            .lock()
+            .map_err(|_| StoreError)?
+            .get(id)
+            .map(|(_, key)| key.clone())
+            .filter(|key| !key.is_empty()))
     }
     async fn publish(&self, id: &str) -> Result<(), StoreError> {
         self.0
@@ -193,6 +204,25 @@ impl AgentStore for DynamoStore {
                 e.as_service_error().and_then(|v| v.code()),
             )),
         }
+    }
+    async fn signing_key(&self, id: &str) -> Result<Option<String>, StoreError> {
+        let result = self
+            .client
+            .get_item()
+            .table_name(&self.table)
+            .key("id", AttributeValue::S(id.into()))
+            .consistent_read(true)
+            .projection_expression("signing_key")
+            .send()
+            .await
+            .map_err(|e| failed("dynamodb", e.as_service_error().and_then(|v| v.code())))?;
+        Ok(result
+            .item
+            .as_ref()
+            .and_then(|item| item.get("signing_key"))
+            .and_then(|v| v.as_s().ok())
+            .cloned()
+            .filter(|key| !key.is_empty()))
     }
     async fn publish(&self, id: &str) -> Result<(), StoreError> {
         self.client

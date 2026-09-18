@@ -173,10 +173,12 @@ async fn login_reuses_account_and_agent_without_exposing_identity() {
     let reply = protocol.oneshot(Request::builder().uri("/a2a").method("POST").header("content-type","application/json")
         .body(Body::from(json!({"jsonrpc":"2.0","id":"test","method":"SendMessage","params":{"tenant":profile["id"],"message":{"messageId":"test-message","role":"ROLE_USER","parts":[{"data":{"operation":"get_availability"}}]}}}).to_string())).unwrap()).await.unwrap();
     let reply = value(reply).await;
-    assert!(
-        reply.get("error").is_some() && reply.get("result").is_none(),
-        "account agents must not fall through to mock availability"
-    );
+    // Account agents never fall through to mock availability: an unsigned
+    // caller is refused before any calendar code runs.
+    let data = reply["result"]["message"]["parts"][1]["data"].clone();
+    assert_eq!(data["status"], "error", "{reply}");
+    assert_eq!(data["code"], "caller_signature_missing");
+    assert!(reply.to_string().find("slots").is_none());
 
     let other = login(&s, "subject-two").await;
     let other_profile = value(call(&s, "/auth/me", "GET", Some(&other), None).await).await;

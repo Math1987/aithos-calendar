@@ -94,11 +94,14 @@ async fn main() -> Result<(), Error> {
             store: private_store.clone(),
             bookings: booking_store.clone(),
             agents: store.clone(),
-            directory: std::sync::Arc::new(calendar::discovery::PeerDirectory::new(
-                &base_url,
-                &catalog_url,
-                trusted_guarantors.clone(),
-            )?),
+            directory: std::sync::Arc::new(
+                calendar::discovery::PeerDirectory::new(
+                    &base_url,
+                    &catalog_url,
+                    trusted_guarantors.clone(),
+                )?
+                .with_store(store.clone()),
+            ),
             policies,
             website: website.clone(),
         });

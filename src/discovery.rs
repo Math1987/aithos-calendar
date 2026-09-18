@@ -95,6 +95,9 @@ pub struct VerifiedPeer {
     pub card: AgentCard,
     pub tenant: String,
     pub card_digest: String,
+    /// The key set served at the card's `jku`, and the key that signed the card.
+    pub keys: jose::Jwks,
+    pub card_kid: String,
 }
 
 pub struct PeerDirectory {
@@ -105,6 +108,8 @@ pub struct PeerDirectory {
     publisher: Publisher,
     trusted_guarantors: Vec<String>,
     keys: Mutex<HashMap<String, (Instant, Arc<jose::Jwks>)>>,
+    /// Where this deployment's own agent keys live, to sign outgoing requests.
+    store: Option<Arc<dyn crate::storage::AgentStore>>,
 }
 
 const KEYS_TTL: Duration = Duration::from_secs(300);
@@ -169,7 +174,51 @@ impl PeerDirectory {
             agent_origin,
             trusted_guarantors,
             keys: Mutex::new(HashMap::new()),
+            store: None,
         })
+    }
+
+    /// Enable outgoing request signatures with the agents' own keys.
+    pub fn with_store(mut self, store: Arc<dyn crate::storage::AgentStore>) -> Self {
+        self.store = Some(store);
+        self
+    }
+
+    /// The `Agent-Signature` header value for one outgoing message, when
+    /// the calling agent's key is available.
+    async fn caller_signature(
+        &self,
+        caller: &str,
+        audience: &str,
+        message_id: &str,
+        operation: &str,
+    ) -> Option<String> {
+        let store = self.store.as_ref()?;
+        let encoded = store.signing_key(caller).await.ok().flatten()?;
+        let key = crate::trust::AgentKey::decode(&encoded).ok()?;
+        crate::trust::caller::sign(
+            &key,
+            &self.publisher.urn(caller),
+            audience,
+            message_id,
+            operation,
+            chrono::Utc::now(),
+        )
+        .ok()
+    }
+
+    fn signed_client(
+        &self,
+        timeout: Duration,
+        headers: reqwest::header::HeaderMap,
+    ) -> Result<Client, PeerError> {
+        Client::builder()
+            .default_headers(headers)
+            .redirect(reqwest::redirect::Policy::none())
+            .timeout(timeout)
+            .connect_timeout(Duration::from_secs(2))
+            .build()
+            .map_err(|_| PeerError::Unavailable)
     }
 
     pub fn publisher(&self) -> &Publisher {
@@ -409,7 +458,8 @@ impl PeerDirectory {
         verify::verify_card(&raw, &agent_keys).inspect_err(
             |error| tracing::warn!(target: "calendar::trust", event = "card_signature_rejected", peer, trace_id, code = error.code()),
         )?;
-        tracing::info!(target: "calendar::trust", event = "card_signature_verified", peer, trace_id, kid = header.kid());
+        let card_kid = header.kid().unwrap_or_default().to_owned();
+        tracing::info!(target: "calendar::trust", event = "card_signature_verified", peer, trace_id, kid = %card_kid);
         // 5. Policy attestations, once the whole chain is intact.
         if policy >= Policy::VerifiedAccount
             && !verify::has_attestation(manifest, crate::trust::ACCOUNT_VERIFIED)
@@ -434,6 +484,8 @@ impl PeerDirectory {
             card,
             tenant,
             card_digest: binding.digest,
+            keys: agent_keys,
+            card_kid,
         })
     }
 
@@ -445,9 +497,11 @@ impl PeerDirectory {
             .build()
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn account_call(
         &self,
         peer: &str,
+        caller: &str,
         token: &str,
         operation: Value,
         trace_id: &str,
@@ -460,18 +514,24 @@ impl PeerDirectory {
             recipient_tenant = %verified.tenant,
             operation = operation["operation"].as_str()
         );
+        let operation_name = operation["operation"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+        let message = Message::new(Role::User, vec![Part::data(operation)]);
         let mut headers = reqwest::header::HeaderMap::new();
         let mut value = reqwest::header::HeaderValue::from_str(&format!("Bearer {token}"))
             .map_err(|_| PeerError::Unavailable)?;
         value.set_sensitive(true);
         headers.insert(reqwest::header::AUTHORIZATION, value);
-        let http = Client::builder()
-            .default_headers(headers)
-            .redirect(reqwest::redirect::Policy::none())
-            .timeout(Duration::from_secs(14))
-            .connect_timeout(Duration::from_secs(2))
-            .build()
-            .map_err(|_| PeerError::Unavailable)?;
+        if let Some(signature) = self
+            .caller_signature(caller, peer, &message.message_id, &operation_name)
+            .await
+            && let Ok(value) = reqwest::header::HeaderValue::from_str(&signature)
+        {
+            headers.insert(crate::trust::caller::HEADER, value);
+        }
+        let http = self.signed_client(Duration::from_secs(14), headers)?;
         let client = self
             .client(http)
             .create_from_card(&verified.card)
@@ -479,7 +539,7 @@ impl PeerDirectory {
             .map_err(|_| PeerError::InvalidCard)?;
         let request = SendMessageRequest {
             tenant: None,
-            message: Message::new(Role::User, vec![Part::data(operation)]),
+            message,
             configuration: None,
             metadata: Some([(String::from("calendarTraceId"), json!(trace_id))].into()),
         };
@@ -515,12 +575,32 @@ impl PeerDirectory {
         policy: Policy,
     ) -> Result<Availability, PeerError> {
         let verified = self.resolve(peer, trace_id, policy).await?;
-        let factory = self.client(if window.is_some() {
-            self.live_http.clone()
+        // Only this leaf operation is sent, never another find_common_slot.
+        let mut operation = json!({"operation":"get_availability"});
+        if let Some(window) = window {
+            operation["window"] = serde_json::to_value(window).unwrap();
+        }
+        let message = Message::new(Role::User, vec![Part::data(operation)]);
+        let timeout = if window.is_some() {
+            Duration::from_secs(10)
         } else {
-            self.http.clone()
-        });
-        let (client, interface) = factory
+            Duration::from_secs(3)
+        };
+        let http = match self
+            .caller_signature(caller, peer, &message.message_id, "get_availability")
+            .await
+            .and_then(|s| reqwest::header::HeaderValue::from_str(&s).ok())
+        {
+            Some(value) => {
+                let mut headers = reqwest::header::HeaderMap::new();
+                headers.insert(crate::trust::caller::HEADER, value);
+                self.signed_client(timeout, headers)?
+            }
+            None if window.is_some() => self.live_http.clone(),
+            None => self.http.clone(),
+        };
+        let (client, interface) = self
+            .client(http)
             .create_from_card_with_interface(&verified.card)
             .await
             .map_err(|_| PeerError::InvalidCard)?;
@@ -530,14 +610,9 @@ impl PeerDirectory {
             peer,
             recipient_tenant = interface.tenant.as_deref(),
         );
-        // Only this leaf operation is sent, never another find_common_slot.
-        let mut operation = json!({"operation":"get_availability"});
-        if let Some(window) = window {
-            operation["window"] = serde_json::to_value(window).unwrap();
-        }
         let request = SendMessageRequest {
             tenant: None, // The SDK fills this from the selected AgentInterface.
-            message: Message::new(Role::User, vec![Part::data(operation)]),
+            message,
             configuration: None,
             metadata: Some([(String::from("calendarTraceId"), json!(trace_id))].into()),
         };

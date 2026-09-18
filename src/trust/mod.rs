@@ -23,6 +23,7 @@ use p256::ecdsa::{Signature, SigningKey, VerifyingKey, signature::Signer};
 use serde_json::{Value, json};
 use std::sync::Arc;
 
+pub mod caller;
 pub mod card;
 pub mod jose;
 pub mod kms;
@@ -155,7 +156,7 @@ impl AgentKey {
     pub fn jwks(&self) -> Value {
         json!({"keys": [self.jwk]})
     }
-    fn sign(&self, signing_input: &[u8]) -> [u8; 64] {
+    pub(crate) fn sign(&self, signing_input: &[u8]) -> [u8; 64] {
         let signature: Signature = self.key.sign(signing_input);
         signature.to_bytes().into()
     }

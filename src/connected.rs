@@ -70,6 +70,7 @@ impl Connected {
             .directory
             .account_call(
                 &self.directory.publisher().urn(host),
+                caller,
                 &token,
                 data,
                 &trace_id,
@@ -86,6 +87,7 @@ impl Connected {
         tenant: &str,
         params: &a2a_server::ServiceParams,
         data: &Value,
+        caller_claims: Option<&crate::trust::caller::Claims>,
     ) -> Result<Value, &'static str> {
         let values = params
             .get("authorization")
@@ -107,6 +109,13 @@ impl Connected {
         let caller = row.value["caller"]
             .as_str()
             .ok_or("a2a_authorization_required")?;
+        // The capability names a caller; the request signature must be that
+        // caller's, so a token cannot be replayed by another guaranteed agent.
+        let claims = caller_claims.ok_or("caller_signature_missing")?;
+        if claims.issuer != self.directory.publisher().urn(caller) {
+            tracing::warn!(target: "calendar::trust", event = "caller_rejected", operation = data["operation"].as_str(), code = "caller_issuer_mismatch");
+            return Err("caller_issuer_mismatch");
+        }
         match data["operation"].as_str() {
             Some("get_availability") => {
                 let window: Window =

@@ -194,7 +194,19 @@ async fn capability_is_required_and_bound_to_recipient_payload_and_expiry() {
     let (s, _, t) = fixture().await;
     let data = json!({"operation":"get_availability","window":Window::next_month()});
     let mut headers = a2a_server::ServiceParams::new();
-    assert!(s.handle("host", &headers, &data).await.is_err());
+    // Claims as the A2A handler produces them after verifying the signature.
+    let guest = crate::trust::caller::Claims {
+        issuer: s.directory.publisher().urn("guest"),
+        audience: s.directory.publisher().urn("host"),
+        message_id: "m".into(),
+        operation: "get_availability".into(),
+        kid: "k".into(),
+    };
+    assert!(
+        s.handle("host", &headers, &data, Some(&guest))
+            .await
+            .is_err()
+    );
     let token = random();
     let key = format!("a2a-grant:{}", digest(&token));
     headers.insert("authorization".into(), vec![format!("Bearer {token}")]);
@@ -204,14 +216,41 @@ async fn capability_is_required_and_bound_to_recipient_payload_and_expiry() {
         binding: String::new(),
     };
     s.store.put(&key, row.clone()).await.unwrap();
-    assert!(s.handle("guest", &headers, &data).await.is_err());
     assert!(
-        s.handle("host", &headers, &json!({"operation":"commit_booking"}))
+        s.handle("guest", &headers, &data, Some(&guest))
             .await
             .is_err()
     );
+    assert!(
+        s.handle(
+            "host",
+            &headers,
+            &json!({"operation":"commit_booking"}),
+            Some(&guest)
+        )
+        .await
+        .is_err()
+    );
+    // The capability alone is not enough: the request must be signed by the
+    // caller the capability names.
     assert_eq!(
-        s.handle("host", &headers, &data).await.unwrap()["status"],
+        s.handle("host", &headers, &data, None).await.unwrap_err(),
+        "caller_signature_missing"
+    );
+    let other = crate::trust::caller::Claims {
+        issuer: s.directory.publisher().urn("someone-else"),
+        ..guest.clone()
+    };
+    assert_eq!(
+        s.handle("host", &headers, &data, Some(&other))
+            .await
+            .unwrap_err(),
+        "caller_issuer_mismatch"
+    );
+    assert_eq!(
+        s.handle("host", &headers, &data, Some(&guest))
+            .await
+            .unwrap()["status"],
         "availability"
     );
     s.store
@@ -224,7 +263,11 @@ async fn capability_is_required_and_bound_to_recipient_payload_and_expiry() {
         )
         .await
         .unwrap();
-    assert!(s.handle("host", &headers, &data).await.is_err());
+    assert!(
+        s.handle("host", &headers, &data, Some(&guest))
+            .await
+            .is_err()
+    );
     t.abort();
 }
 #[test]

@@ -60,6 +60,14 @@ async fn every_scenario_behaves_as_documented_under_each_policy() {
             .collect();
         assert!(failures.is_empty(), "{policy}: {failures:?}");
         assert_eq!(report["passed"], true);
+        // Inbound direction: four caller cases with the documented outcomes.
+        let callers = report["callers"].as_array().unwrap();
+        assert_eq!(callers.len(), 4, "{report}");
+        for case in callers {
+            assert_eq!(case["passed"], true, "{case}");
+        }
+        assert_eq!(callers[2]["actual"], "caller_unguaranteed");
+        assert_eq!(callers[3]["actual"], "caller_key_mismatch");
     }
     // Mock agents carry no account attestation: only the booking policy
     // rejects the otherwise valid scenarios, with its own code.
@@ -88,8 +96,16 @@ async fn account_linked_agents_pass_the_booking_policy() {
         server.base
     ))
     .await;
-    assert_eq!(report["passed"], true, "{report}");
+    for result in report["results"].as_array().unwrap() {
+        assert_eq!(result["passed"], true, "{result}");
+    }
     assert_eq!(report["results"][0]["actual"], "accepted");
+    // Without the calendar connector the signed call ends in a protocol
+    // error instead of the capability check; the three refusals hold.
+    let callers = report["callers"].as_array().unwrap();
+    assert_eq!(callers[0]["actual"], "caller_signature_missing");
+    assert_eq!(callers[2]["actual"], "caller_unguaranteed");
+    assert_eq!(callers[3]["actual"], "caller_key_mismatch");
     let (_, catalog) = get(&format!("{}/.well-known/ai-catalog.json", server.base)).await;
     let attestation = &catalog["entries"][0]["trustManifest"]["attestations"][0];
     assert_eq!(attestation["type"], "account-verified");
