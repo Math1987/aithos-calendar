@@ -2,6 +2,7 @@
 use async_trait::async_trait;
 use aws_sdk_dynamodb::{
     Client,
+    error::ProvideErrorMetadata,
     types::{AttributeValue, ReturnValue},
 };
 use serde::{Deserialize, Serialize};
@@ -242,7 +243,19 @@ impl AuthStore for DynamoAuthStore {
             Err(e)
                 if e.as_service_error()
                     .is_some_and(|e| e.is_conditional_check_failed_exception()) => {}
-            Err(_) => return Err(AuthStoreError),
+            Err(e) => {
+                // A denied or failing counter must be visible: it fails the
+                // request closed as "storage_unavailable".
+                tracing::warn!(
+                    event = "storage_error",
+                    operation = "increment",
+                    code = e
+                        .as_service_error()
+                        .and_then(|v| v.code())
+                        .unwrap_or("unknown")
+                );
+                return Err(AuthStoreError);
+            }
         }
         let updated = self
             .client
@@ -257,7 +270,17 @@ impl AuthStore for DynamoAuthStore {
             .return_values(ReturnValue::AllNew)
             .send()
             .await
-            .map_err(|_| AuthStoreError)?;
+            .map_err(|e| {
+                tracing::warn!(
+                    event = "storage_error",
+                    operation = "increment",
+                    code = e
+                        .as_service_error()
+                        .and_then(|v| v.code())
+                        .unwrap_or("unknown")
+                );
+                AuthStoreError
+            })?;
         updated
             .attributes
             .and_then(|a| a.get("count")?.as_n().ok()?.parse().ok())

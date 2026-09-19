@@ -79,6 +79,7 @@ pub const EVENTS: &[&str] = &[
     "account_deleted",
     "storage_error",
     "agent_job_retry",
+    "agent_job_failed",
 ];
 
 /// SDK messages that may be copied (`message`, from the A2A interceptors).

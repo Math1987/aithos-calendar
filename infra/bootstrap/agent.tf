@@ -35,7 +35,8 @@ resource "aws_iam_role_policy" "agent_worker" {
     { Effect = "Allow", Action = ["logs:CreateLogStream", "logs:PutLogEvents"], Resource = "arn:aws:logs:${local.region}:${local.account}:log-group:/aws/lambda/${local.name}-agent-worker:*" },
     { Effect = "Allow", Action = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes", "sqs:SendMessage"], Resource = "arn:aws:sqs:${local.region}:${local.account}:${local.name}-agent" },
     { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:PutItem"], Resource = aws_dynamodb_table.agent_state.arn },
-    { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem"], Resource = "arn:aws:dynamodb:${local.region}:${local.account}:table/${local.name}-auth" },
+    # UpdateItem: the rate-limit counters (src/limits.rs) that proposals bump.
+    { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem", "dynamodb:UpdateItem"], Resource = "arn:aws:dynamodb:${local.region}:${local.account}:table/${local.name}-auth" },
     { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:Scan"], Resource = "arn:aws:dynamodb:${local.region}:${local.account}:table/${local.name}-agents" },
     { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem"], Resource = "arn:aws:dynamodb:${local.region}:${local.account}:table/${local.name}-bookings" },
     { Effect = "Allow", Action = ["kms:Encrypt", "kms:Decrypt"], Resource = aws_kms_key.google_tokens.arn, Condition = { StringEquals = { "kms:EncryptionContext:service" = "calendar" }, Null = { "kms:EncryptionContext:account" = "false" } } },

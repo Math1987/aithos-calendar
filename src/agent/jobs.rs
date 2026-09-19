@@ -172,6 +172,7 @@ impl Jobs {
                 }
                 .into();
                 job.result["error"] = json!(code);
+                tracing::warn!(event = "agent_job_failed", code, status = %job.status, attempts = job.attempts);
             }
         }
         job.lease_until = 0;
