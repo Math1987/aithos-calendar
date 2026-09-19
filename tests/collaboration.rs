@@ -94,11 +94,19 @@ async fn start(mode: &'static str) -> Server {
         .layer(middleware::from_fn(move |request: Request, next: Next| {
             let captured = captured.clone();
             async move {
-                if request.uri().path() != "/a2a" {
+                let declared: u64 = request
+                    .headers()
+                    .get("content-length")
+                    .and_then(|v| v.to_str().ok()?.parse().ok())
+                    .unwrap_or(0);
+                // Oversized bodies are the application's business (its cap).
+                if request.uri().path() != "/a2a" || declared > calendar::MAX_A2A_BODY {
                     return next.run(request).await;
                 }
                 let (parts, body) = request.into_parts();
-                let bytes = to_bytes(body, 65536).await.unwrap();
+                let bytes = to_bytes(body, calendar::MAX_A2A_BODY as usize)
+                    .await
+                    .unwrap();
                 if let Ok(value) = serde_json::from_slice::<Value>(&bytes) {
                     captured.lock().unwrap().push(value);
                 }
@@ -237,4 +245,26 @@ async fn invalid_peer_intervals_cannot_produce_a_common_slot() {
     let result = send(&server, "alice", operation("bob", 30)).await;
     assert_eq!(data(&result)["status"], "error");
     assert_eq!(data(&result)["code"], "invalid_peer_response");
+}
+
+/// The SDK router would accept 10 MiB; a message here is a few KiB, so an
+/// oversized or length-less POST is refused before it is read.
+#[tokio::test]
+async fn oversized_a2a_bodies_are_refused_before_parsing() {
+    let server = start("normal").await;
+    let client = reqwest::Client::new();
+    let big = format!(
+        r#"{{"jsonrpc":"2.0","id":"big","method":"SendMessage","params":{{"tenant":"alice","message":{{"messageId":"m","role":"ROLE_USER","parts":[{{"text":"{}"}}]}}}}}}"#,
+        "a".repeat(calendar::MAX_A2A_BODY as usize)
+    );
+    let response = client
+        .post(format!("{}/a2a", server.base))
+        .header("content-type", "application/json")
+        .body(big)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 413);
+    let small = send(&server, "alice", operation("bob", 30)).await;
+    assert_eq!(data(&small)["status"], "slot_found", "{small}");
 }

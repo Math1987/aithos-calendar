@@ -219,10 +219,12 @@ pub fn build(config: Config) -> Result<Router, lambda_http::Error> {
     let feed = Router::new()
         .route("/logs/events", get(public_logs::events))
         .with_state(config.public_logs.clone());
-    // The SDK router accepts 10 MiB bodies; a message here is a few KiB.
+    // The SDK router sets its own 10 MiB `DefaultBodyLimit`, which an outer
+    // limit cannot lower (the innermost wins), so the cap is a middleware on
+    // the declared length; a message here is a few KiB.
     let protocol = Router::new()
         .fallback_service(protocol)
-        .layer(DefaultBodyLimit::max(64 * 1024));
+        .layer(middleware::from_fn(a2a_body_cap));
     Ok(Router::new()
         .route("/health", get(health))
         .merge(routes)
@@ -233,6 +235,29 @@ pub fn build(config: Config) -> Result<Router, lambda_http::Error> {
             config.public_logs,
             public_logs::flush_after,
         )))
+}
+
+/// Largest A2A request body accepted, well above any real message.
+pub const MAX_A2A_BODY: u64 = 64 * 1024;
+
+async fn a2a_body_cap(request: axum::extract::Request, next: middleware::Next) -> Response {
+    let (parts, body) = request.into_parts();
+    // Buffered here up to the cap, so the header cannot be lied about and a
+    // chunked body is bounded too; the SDK then reads it from memory.
+    match axum::body::to_bytes(body, MAX_A2A_BODY as usize).await {
+        Ok(bytes) => {
+            next.run(axum::extract::Request::from_parts(
+                parts,
+                axum::body::Body::from(bytes),
+            ))
+            .await
+        }
+        Err(_) => (
+            axum::http::StatusCode::PAYLOAD_TOO_LARGE,
+            Json(json!({"error":"request_too_large","max_bytes":MAX_A2A_BODY})),
+        )
+            .into_response(),
+    }
 }
 
 async fn health() -> Response {
