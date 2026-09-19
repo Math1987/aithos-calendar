@@ -4,19 +4,19 @@
 
 | Item | Value | State |
 | --- | --- | --- |
-| Google Cloud project display name | `A2A Calendar POC` (was "Aithos Calendar") | rename in the console, see the checklist below |
+| Google Cloud project display name | `A2A Calendar POC` | done 2026-09-19 |
 | Project ID / number | `aithos-calendar` / `235708078636` (the ID cannot change) | fixed |
 | Organization | `aithos.fr` (`1034671875644`) | fixed |
 | Google Calendar API | Enabled (`calendar-json.googleapis.com`) | done |
-| OAuth application name (consent screen) | `A2A Calendar POC` | rename in the console |
+| OAuth application name (consent screen) | `A2A Calendar POC` | done; branding validated and published 2026-09-19 |
 | Google Auth Platform audience | External | done |
-| Publishing status | **Testing → In production** (publish without waiting for verification; verification filed in parallel) | to do, after the code in this document is deployed |
+| Publishing status | **In production** since 2026-09-19 (scope verification pending, see `google-verification.md`) | done |
 | Support and developer contact | `mathieu@aithos.fr` | done |
 | Application home page | `https://calendar.aithos.world/` | done |
-| Privacy policy / terms of service | `https://calendar.aithos.world/privacy`, `https://calendar.aithos.world/terms` | add in the console |
-| Authorized domain | `aithos.world` | done; domain verification in Search Console still to do |
-| Consent-screen scopes (Data access) | `openid`, `email`, `profile`, `…/auth/calendar.freebusy`, `…/auth/calendar.events.owned`, `…/auth/calendar.calendarlist.readonly` | the three Calendar scopes must be added in the console |
-| OAuth client | `A2A Calendar POC Web` (rename), Web application, ID `235708078636-686f8i71em5mmsn1b29prrfv4tl8gpt3.apps.googleusercontent.com` | ID unchanged |
+| Privacy policy / terms of service | `https://calendar.aithos.world/privacy`, `https://calendar.aithos.world/terms` | done |
+| Authorized domain | `aithos.world`; `https://calendar.aithos.world/` verified in Search Console (HTML tag) | done |
+| Consent-screen scopes (Data access) | `openid`, `email`, `profile`, `…/auth/calendar.freebusy`, `…/auth/calendar.events.owned`, `…/auth/calendar.calendarlist.readonly` | done; only `calendar.events.owned` is classed sensitive |
+| OAuth client | `A2A Calendar POC Web`, Web application, ID `235708078636-686f8i71em5mmsn1b29prrfv4tl8gpt3.apps.googleusercontent.com` | renamed; ID unchanged |
 | Authorized redirect URI | `https://api.calendar.aithos.world/auth/google/callback` | done |
 | Authorized JavaScript origins | none | done |
 

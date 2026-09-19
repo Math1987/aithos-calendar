@@ -56,6 +56,14 @@ granted set before storing a token (`GoogleCalendar::connect`).
 | Why narrower is not enough | The app must write events (`events.insert`, `events.patch`), which no read-only scope allows; `calendar.events.owned` is limited to calendars the user owns, which is all the app touches (the primary calendar). The broader `calendar` and `calendar.events` scopes are not requested. |
 | What is stored | From history: per event, title (≤ 120 chars), description (≤ 180 chars), start/end, whether the user organised it, whether the peer attended, series id (`src/agent/preferences.rs::Observation`); up to 60 sent once per person per day to the model, up to 20 cached for 24 hours. From the created event: its deterministic id in the booking record (30 days after the meeting). |
 
+### Text for the console's single justification field (988 characters, limit 1000)
+
+The Data access page in verification mode has one "How will these scopes
+be used?" field for the sensitive scope `calendar.events.owned`, plus the
+YouTube link (both required before the page can be saved):
+
+> A2A Calendar POC gives a Google account a software agent that finds a meeting time with another person's agent and books it in both Google Calendars. calendar.events.owned is needed for four things, on the user's primary calendar only: (1) read past meetings with the other person (events.list, 9 months back) to learn habits: preferred weekday, hour, duration; (2) create the agreed meeting (events.insert) with the other person as attendee; (3) accept the invitation on the guest's own calendar (events.patch of the user's own responseStatus); (4) recognise a meeting the app created (events.get). Read-only scopes cannot create or accept events; the broader calendar and calendar.events scopes are not requested because only calendars the user owns are touched. Stored: per past event, title (120 chars), description (180 chars), times, organiser flag, cached 24 h; the created event id for 30 days. Deleting the account revokes the grant. Policy: https://calendar.aithos.world/privacy
+
 ## 3. Data handling summary for the reviewer
 
 - Refresh tokens are encrypted with a customer-managed AWS KMS key bound to the account (`GoogleCalendar::connect`), access tokens are minted per operation and not stored (`GoogleCalendar::token`).
@@ -88,7 +96,7 @@ YouTube link goes into the form.
 | Privacy policy link | Branding | `https://calendar.aithos.world/privacy` |
 | Terms of service link | Branding | `https://calendar.aithos.world/terms` |
 | Authorized domain | Branding | `aithos.world` |
-| Domain ownership | Google Search Console, with an owner account of the Cloud project | see "Domain verification" below |
+| Domain ownership | Google Search Console, with an owner account of the Cloud project | done: URL-prefix property `https://calendar.aithos.world/`, HTML-tag method (`web/index.html`) |
 | Scopes | Data access | `openid`, `email`, `profile`, `…/auth/calendar.freebusy`, `…/auth/calendar.calendarlist.readonly`, `…/auth/calendar.events.owned` |
 | Per-scope justification | Verification form | section 2 of this document |
 | Demo video | Verification form | unlisted YouTube link recorded with the script in section 4 |
@@ -102,7 +110,25 @@ Two ways, both need a value that only Search Console gives:
 - **URL-prefix property `https://calendar.aithos.world/`** (recommended): Search Console's "HTML file" method hands out a file `google<token>.html`; commit it as `web/google<token>.html` and add it to `infra/production/website.tf` as an `aws_s3_object` next to `privacy`/`terms` (the deploy role may write only listed keys, so add the key to `infra/bootstrap/trust.tf` and apply bootstrap first). CI then serves it at `https://calendar.aithos.world/google<token>.html`. This is fully in Terraform and does not touch the apex zone.
 - **Domain property `aithos.world`** (DNS TXT `google-site-verification=<token>` at the apex): the Route 53 zone `Z09988302Y6VWTN77SVQ8` hosts the apex, but production Terraform manages only the `calendar.` and `api.calendar.` records and the deploy role is restricted to those names and to A/AAAA/CNAME types (`infra/bootstrap/deployment-policy.tf`). An apex TXT therefore has to be added by hand (Route 53 console or admin CLI), merged into the existing apex TXT record set if there is one; it is not added to `dns.tf`.
 
-## 6. After filing
+## 6. Console state on 2026-09-19
+
+Done in the console (project owner session): Branding saved with the
+name `A2A Calendar POC`, home page, privacy and terms links, domain
+`aithos.world`, support and contact `mathieu@aithos.fr`, no logo; the six
+scopes declared under Data access; project display name and OAuth client
+name renamed; app published (**In production**); `https://calendar.aithos.world/`
+verified in Search Console (HTML tag on the home page); **branding
+validated and published** (the consent screen now shows the app name and
+the policy links, no more "unverified brand" notice).
+
+Still open: the scope verification request. The Data access page in
+verification mode needs the justification above **and** the YouTube link
+in the same save; then "Prepare for verification" → "Confirm" in the
+Verification Center files the request. Until it is granted, users see the
+"Google hasn't verified this app" interstitial for the Calendar consent and
+the 100-user cap applies.
+
+## 7. After filing
 
 Google's review of sensitive scopes typically takes several business days
 to a few weeks and may come back with questions about the video or the
